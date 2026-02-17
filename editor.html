@@ -406,9 +406,28 @@
     .drawerHead {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-start;
       gap: 8px;
       margin-bottom: 6px;
+    }
+    .drawerFooter {
+      position: sticky;
+      bottom: -10px;
+      margin: 8px -10px -10px;
+      padding: 8px 10px;
+      border-top: 1px solid #e5e7eb;
+      background: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .drawerFooterText {
+      font-size: 11px;
+      color: #6b7280;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .editorBackdrop {
       position: fixed;
@@ -441,13 +460,7 @@
         <div id="selectedEditor" class="selectedEditor">
           <div class="drawerHead">
             <div class="sectionTitle">Selected area</div>
-            <button id="btnCloseEditor" class="btnAutoWidth">Close</button>
           </div>
-          <div class="hintBox" id="selHintBox">
-            <div class="hintTitle" id="selHintTitle">State</div>
-            <div class="hintText" id="selHint">No area selected. Click on an existing area or draw a new area to start editing.</div>
-          </div>
-
           <div id="selectionFields" class="hidden">
             <div class="row hidden" id="rowAreaId">
               <label for="f_area_id">Area ID</label>
@@ -480,10 +493,10 @@
               <label for="f_notes">Notes</label>
               <textarea id="f_notes" placeholder="Optional…"></textarea>
             </div>
-
-            <div class="btnrow btnrowSingle">
-              <button id="btnZoom">Fit selected area</button>
-            </div>
+          </div>
+          <div class="drawerFooter">
+            <div class="drawerFooterText">Edits save automatically.</div>
+            <button id="btnCloseEditor" class="btnAutoWidth">Close</button>
           </div>
         </div>
 
@@ -637,9 +650,6 @@
       status: document.getElementById("status"),
       badgeAutosave: document.getElementById("badgeAutosave"),
       badgeExport: document.getElementById("badgeExport"),
-      selHintBox: document.getElementById("selHintBox"),
-      selHintTitle: document.getElementById("selHintTitle"),
-      selHint: document.getElementById("selHint"),
       nameSuggestHelp: document.getElementById("nameSuggestHelp"),
       suggestModal: document.getElementById("suggestModal"),
       suggestModalText: document.getElementById("suggestModalText"),
@@ -656,7 +666,6 @@
       f_status: document.getElementById("f_status"),
       f_notes: document.getElementById("f_notes"),
 
-      btnZoom: document.getElementById("btnZoom"),
       btnCloseEditor: document.getElementById("btnCloseEditor"),
       btnEditSelected: document.getElementById("btnEditSelected"),
       statusHintShortcuts: document.getElementById("statusHintShortcuts"),
@@ -1509,9 +1518,6 @@
       if (!layer) {
         setEditorDrawerOpen(false);
         els.selectionFields.classList.add("hidden");
-        els.selHintBox.classList.remove("active");
-        els.selHintTitle.textContent = "State";
-        els.selHint.textContent = "No area selected. Click on an existing area or draw a new area to start editing.";
         els.f_area_id.value = "";
         els.f_name.value = "";
         els.f_contact.value = "";
@@ -1525,9 +1531,6 @@
 
       const p = layer.feature?.properties || {};
       els.selectionFields.classList.remove("hidden");
-      els.selHintBox.classList.add("active");
-      els.selHintTitle.textContent = "Editing";
-      els.selHint.textContent = "Changes below auto-save to this selected area.";
       els.f_area_id.value = areaIdValue(p);
       els.f_name.value = p.name || "";
       els.f_contact.value = contactValue(p);
@@ -1655,6 +1658,11 @@
       state.editorDrawerOpen = next;
       els.selectedEditor.classList.toggle("drawerOpen", next);
       els.editorBackdrop.classList.toggle("open", next);
+    }
+
+    function closeEditorSafely() {
+      if (state.selectedLayer) applyToSelected();
+      setEditorDrawerOpen(false);
     }
 
     function refreshSelectionActions() {
@@ -1959,14 +1967,13 @@
       }[c]));
     }
 
-    els.btnZoom.addEventListener("click", zoomToSelected);
     els.btnEditSelected.addEventListener("click", () => {
       if (!state.selectedLayer) return;
       setEditorDrawerOpen(true);
     });
-    els.btnCloseEditor.addEventListener("click", () => setEditorDrawerOpen(false));
+    els.btnCloseEditor.addEventListener("click", closeEditorSafely);
     els.editorBackdrop.addEventListener("click", () => {
-      setEditorDrawerOpen(false);
+      closeEditorSafely();
     });
     els.statusHintShortcuts.addEventListener("click", () => setShortcutsModalOpen(true));
     els.statusHintShortcuts.addEventListener("keydown", (e) => {
@@ -2166,7 +2173,7 @@
           return;
         }
         if (state.editorDrawerOpen) {
-          setEditorDrawerOpen(false);
+          closeEditorSafely();
           return;
         }
         if (state.selectedLayer) setSelected(null);
