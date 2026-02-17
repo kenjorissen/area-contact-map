@@ -556,6 +556,7 @@
     const ONLINE_TILE_TEMPLATE = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
     const ONLINE_TILE_ATTR = "&copy; OpenStreetMap contributors &copy; CARTO";
     const AUTOSAVE_KEY = "area-editor-autosave-v1";
+    const DEFAULT_GEOJSON_FILENAME = "areas.geojson";
     const PANEL_WIDTH_KEY = "area-editor-panel-width-v1";
     const AUTOSAVE_DELAY_MS = 1200;
     const GEOCODE_MIN_INTERVAL_MS = 700;
@@ -598,7 +599,7 @@
     const state = {
       selectedLayer: null,
       tileLayer: null,
-      currentGeoJSONName: "areas.geojson",
+      currentGeoJSONName: DEFAULT_GEOJSON_FILENAME,
       exportFileHandle: null,
       showAdvanced: false,
       showOtherLabels: true,
@@ -1414,11 +1415,23 @@
         data: gj,
         dirtySinceExport: opts.dirtySinceExport ?? state.dirtySinceExport
       };
-      localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(payload));
-      state.lastAutosaveAt = payload.savedAt;
-      state.dirtySinceAutosave = false;
-      refreshSaveState();
-      return payload;
+      try {
+        localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(payload));
+        state.lastAutosaveAt = payload.savedAt;
+        state.dirtySinceAutosave = false;
+        refreshSaveState();
+        return payload;
+      } catch (err) {
+        const msg = String(err?.name || err?.message || "").toLowerCase();
+        const isQuota = msg.includes("quota") || msg.includes("exceeded");
+        setStatus(
+          isQuota
+            ? "Autosave failed: browser storage is full. Export to save to disk."
+            : "Autosave failed due to browser storage error. Export to save to disk.",
+          true
+        );
+        return null;
+      }
     }
 
     function performAutosave() {
@@ -1860,7 +1873,7 @@
       }
 
       try {
-        const filename = "areas.geojson";
+        const filename = DEFAULT_GEOJSON_FILENAME;
         const res = await fetch(`./${filename}`, { cache: "no-store" });
         if (!res.ok) return false;
         const gj = await res.json();
@@ -2060,7 +2073,7 @@
       }
 
       loadGeoJSON(gj);
-      state.currentGeoJSONName = file.name || "areas.geojson";
+      state.currentGeoJSONName = file.name || DEFAULT_GEOJSON_FILENAME;
       state.exportFileHandle = null;
       saveAutosaveSnapshot(gj, { dirtySinceExport: false });
       state.dirtySinceExport = false;
@@ -2075,7 +2088,7 @@
         if (window.showSaveFilePicker) {
           if (!state.exportFileHandle) {
             state.exportFileHandle = await window.showSaveFilePicker({
-              suggestedName: state.currentGeoJSONName || "areas.geojson",
+              suggestedName: state.currentGeoJSONName || DEFAULT_GEOJSON_FILENAME,
               types: [{
                 description: "GeoJSON",
                 accept: { "application/geo+json": [".geojson", ".json"] }
@@ -2104,7 +2117,7 @@
         setStatus("Direct overwrite failed, downloaded file instead.", true);
       }
 
-      downloadGeoJSON(state.currentGeoJSONName || "areas.geojson", gj);
+      downloadGeoJSON(state.currentGeoJSONName || DEFAULT_GEOJSON_FILENAME, gj);
       state.lastExportAt = new Date().toISOString();
       state.dirtySinceExport = false;
       saveAutosaveSnapshot(gj, { dirtySinceExport: false });
