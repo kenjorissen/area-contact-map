@@ -230,6 +230,47 @@
       margin-bottom: 2px;
     }
     .hintText { font-size: 12px; line-height: 1.35; }
+    .suggestModal {
+      position: fixed;
+      inset: 0;
+      z-index: 1700;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(2, 8, 23, 0.35);
+      padding: 16px;
+      box-sizing: border-box;
+    }
+    .suggestModal.open { display: flex; }
+    .suggestModalCard {
+      width: min(420px, calc(100vw - 32px));
+      background: #111827;
+      color: #f9fafb;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      padding: 12px 14px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+      font-size: 13px;
+      line-height: 1.35;
+    }
+    .suggestModalRow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .suggestModal .spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(255, 255, 255, 0.35);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: suggestSpin 0.8s linear infinite;
+    }
+    @keyframes suggestSpin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
     .toggleRow {
       display: flex;
       align-items: center;
@@ -417,6 +458,7 @@
               <label for="f_name">Area name</label>
               <input id="f_name" placeholder="area name" />
             </div>
+            <div class="muted" id="nameSuggestHelp"></div>
 
             <div class="row">
               <label for="f_contact">Contact</label>
@@ -486,6 +528,14 @@
     </div>
   </div>
   <div id="editorBackdrop" class="editorBackdrop" aria-hidden="true"></div>
+  <div id="suggestModal" class="suggestModal" aria-live="polite" role="dialog" aria-modal="true" aria-label="Name suggestion in progress">
+    <div class="suggestModalCard">
+      <div class="suggestModalRow">
+        <span class="spinner" aria-hidden="true"></span>
+        <span id="suggestModalText">Trying Nominatim to suggest a name...</span>
+      </div>
+    </div>
+  </div>
   <div id="shortcutsModal" class="shortcutsModal" role="dialog" aria-modal="true" aria-labelledby="shortcutsTitle">
     <div class="shortcutsCard">
       <div class="shortcutsHead">
@@ -518,6 +568,8 @@
     const AUTOSAVE_KEY = "area-editor-autosave-v1";
     const PANEL_WIDTH_KEY = "area-editor-panel-width-v1";
     const AUTOSAVE_DELAY_MS = 1200;
+    const GEOCODE_MIN_INTERVAL_MS = 700;
+    const GEOCODE_FAILURE_BACKOFF_MS = 2200;
     const LABEL_OFFSETS = (() => {
       const offsets = [[0, 0]];
       const dirs = [
@@ -565,11 +617,16 @@
       dirtySinceAutosave: false,
       dirtySinceExport: false,
       lastAutosaveAt: null,
-      lastExportAt: null
+      lastExportAt: null,
+      geocodeBackoffUntil: 0,
+      geocodeWarmupDone: false,
+      hasSuccessfulGeocode: false
     };
     let autosaveTimer = null;
     let labelDeclutterFrame = null;
     let sidebarToggleControlEl = null;
+    let geocodeQueue = Promise.resolve();
+    let lastGeocodeAt = 0;
 
     const els = {
       btnOpen: document.getElementById("btnOpen"),
@@ -583,6 +640,9 @@
       selHintBox: document.getElementById("selHintBox"),
       selHintTitle: document.getElementById("selHintTitle"),
       selHint: document.getElementById("selHint"),
+      nameSuggestHelp: document.getElementById("nameSuggestHelp"),
+      suggestModal: document.getElementById("suggestModal"),
+      suggestModalText: document.getElementById("suggestModalText"),
       selectedEditor: document.getElementById("selectedEditor"),
       editorBackdrop: document.getElementById("editorBackdrop"),
       selectionFields: document.getElementById("selectionFields"),
@@ -610,6 +670,484 @@
     function setStatus(msg, warn = false) {
       els.status.textContent = `Status: ${msg}`;
       els.status.classList.toggle("warn", warn);
+    }
+
+    function setSuggestModalOpen(open, text = "") {
+      if (!els.suggestModal) return;
+      if (open) {
+        const msg = text || "Trying Nominatim to suggest a name...";
+        if (els.suggestModalText) els.suggestModalText.textContent = msg;
+        els.suggestModal.classList.add("open");
+      } else {
+        els.suggestModal.classList.remove("open");
+      }
+    }
+
+    function sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    async function scheduleGeocodeCall(call) {
+      const run = geocodeQueue.then(async () => {
+        const elapsed = Date.now() - lastGeocodeAt;
+        const cooldownMs = Math.max(0, state.geocodeBackoffUntil - Date.now());
+        const waitMs = Math.max(0, GEOCODE_MIN_INTERVAL_MS - elapsed, cooldownMs);
+        if (waitMs > 0) await sleep(waitMs);
+        try {
+          return await call();
+        } finally {
+          lastGeocodeAt = Date.now();
+        }
+      });
+      geocodeQueue = run.catch(() => {});
+      return run;
+    }
+
+    async function ensureGeocodeWarmup() {
+      if (state.geocodeWarmupDone) return;
+      state.geocodeWarmupDone = true;
+      try {
+        await scheduleGeocodeCall(async () => {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 4500);
+          try {
+            await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&addressdetails=1&lat=${encodeURIComponent(DEFAULT_VIEW[0])}&lon=${encodeURIComponent(DEFAULT_VIEW[1])}`,
+              {
+                signal: ctrl.signal,
+                headers: { Accept: "application/json" }
+              }
+            );
+          } finally {
+            clearTimeout(timer);
+          }
+        });
+      } catch {}
+    }
+
+    function shortRoadName(name) {
+      let s = String(name || "").trim();
+      if (!s) return "";
+      s = s
+        .replace(/[.,]/g, " ")
+        .replace(/\bStreet\b/gi, "St")
+        .replace(/\bAvenue\b/gi, "Ave")
+        .replace(/\bRoad\b/gi, "Rd")
+        .replace(/\bDrive\b/gi, "Dr")
+        .replace(/\bBoulevard\b/gi, "Blvd")
+        .replace(/\bPlace\b/gi, "Pl")
+        .replace(/\bLane\b/gi, "Ln")
+        .replace(/\bCourt\b/gi, "Ct")
+        .replace(/\bTerrace\b/gi, "Ter")
+        .replace(/\bParkway\b/gi, "Pkwy")
+        .replace(/\bCircle\b/gi, "Cir")
+        .replace(/\bHighway\b/gi, "Hwy")
+        .replace(/\bTrail\b/gi, "Trl")
+        .replace(/\bNorth\b/gi, "N")
+        .replace(/\bSouth\b/gi, "S")
+        .replace(/\bEast\b/gi, "E")
+        .replace(/\bWest\b/gi, "W")
+        .replace(/\b([nsew])\b/g, (m) => m.toUpperCase())
+        .replace(/\s+/g, " ")
+        .trim();
+      return s;
+    }
+
+    function roadTypeScore(name) {
+      const s = String(name || "").toLowerCase();
+      if (!s) return 0;
+      if (/\b(st|street)\b/.test(s)) return 2;
+      if (/\b(ave|avenue)\b/.test(s)) return 1;
+      return 0;
+    }
+
+    function numericPrefix(name) {
+      const m = String(name || "").trim().match(/(?:^|\s)(\d+)(?:\b|st\b|nd\b|rd\b|th\b)/i);
+      if (!m) return null;
+      const n = Number.parseInt(m[1], 10);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function orderedRoadPair(a, b) {
+      const left = String(a || "").trim();
+      const right = String(b || "").trim();
+      if (!left || !right) return [left, right];
+      const na = numericPrefix(left);
+      const nb = numericPrefix(right);
+      if (na != null && nb != null && na !== nb) {
+        return na < nb ? [left, right] : [right, left];
+      }
+      return [left, right];
+    }
+
+    function ordinalTokenParts(token) {
+      const m = String(token || "").trim().match(/^(\d+)(st|nd|rd|th)$/i);
+      if (!m) return null;
+      return { n: m[1], suffix: m[2].toLowerCase() };
+    }
+
+    function directionToken(token) {
+      const t = String(token || "").trim().toUpperCase();
+      return /^(N|S|E|W|NE|NW|SE|SW)$/.test(t) ? t : "";
+    }
+
+    function roadTypeTokenAtEnd(tokens) {
+      if (!tokens.length) return "";
+      const last = String(tokens[tokens.length - 1] || "");
+      return /^(st|ave|rd|dr|blvd|pl|ln|ct|ter|pkwy|cir|hwy|trl)$/i.test(last) ? last : "";
+    }
+
+    function parseRoadNameParts(name) {
+      const tokens = String(name || "").trim().split(/\s+/).filter(Boolean);
+      const out = {
+        prefixDir: "",
+        coreTokens: [],
+        type: "",
+        suffixDir: ""
+      };
+      if (!tokens.length) return out;
+
+      const work = [...tokens];
+      const firstDir = directionToken(work[0]);
+      if (firstDir) {
+        out.prefixDir = firstDir;
+        work.shift();
+      }
+
+      const lastDir = directionToken(work[work.length - 1]);
+      if (lastDir) {
+        out.suffixDir = lastDir;
+        work.pop();
+      }
+
+      const type = roadTypeTokenAtEnd(work);
+      if (type) {
+        out.type = type;
+        work.pop();
+      }
+
+      out.coreTokens = work;
+      return out;
+    }
+
+    function compactRoadPair(a, b) {
+      const left = String(a || "").trim();
+      const right = String(b || "").trim();
+      if (!left || !right) return "";
+
+      const leftParts = parseRoadNameParts(left);
+      const rightParts = parseRoadNameParts(right);
+
+      const samePrefixDir =
+        leftParts.prefixDir &&
+        rightParts.prefixDir &&
+        leftParts.prefixDir === rightParts.prefixDir;
+      const sameSuffixDir =
+        leftParts.suffixDir &&
+        rightParts.suffixDir &&
+        leftParts.suffixDir === rightParts.suffixDir;
+      const sameType =
+        leftParts.type &&
+        rightParts.type &&
+        leftParts.type.toLowerCase() === rightParts.type.toLowerCase();
+
+      const leftCore = [...leftParts.coreTokens];
+      const rightCore = [...rightParts.coreTokens];
+      const leftLast = leftCore[leftCore.length - 1] || "";
+      const rightLast = rightCore[rightCore.length - 1] || "";
+      const leftOrd = ordinalTokenParts(leftLast);
+      const rightOrd = ordinalTokenParts(rightLast);
+      if (sameType && leftOrd && rightOrd && leftOrd.suffix === rightOrd.suffix) {
+        leftCore[leftCore.length - 1] = leftOrd.n;
+      }
+
+      const leftTokens = [];
+      if (!samePrefixDir && leftParts.prefixDir) leftTokens.push(leftParts.prefixDir);
+      leftTokens.push(...leftCore);
+      if (!sameType && leftParts.type) leftTokens.push(leftParts.type);
+      if (!sameSuffixDir && leftParts.suffixDir) leftTokens.push(leftParts.suffixDir);
+
+      const rightTokens = [];
+      if (!samePrefixDir && rightParts.prefixDir) rightTokens.push(rightParts.prefixDir);
+      rightTokens.push(...rightCore);
+      if (rightParts.type) rightTokens.push(rightParts.type);
+      if (rightParts.suffixDir) rightTokens.push(rightParts.suffixDir);
+
+      const leftText = leftTokens.join(" ").trim() || left;
+      const rightText = rightTokens.join(" ").trim() || right;
+      const prefixText = samePrefixDir ? `${leftParts.prefixDir} ` : "";
+      return `${prefixText}${leftText}-${rightText}`;
+    }
+
+    function pairSignature(a, b) {
+      const normVal = (v) => String(v || "").trim().toLowerCase().replace(/\s+/g, " ");
+      return [normVal(a), normVal(b)].sort().join("||");
+    }
+
+    function firstRingLatLngs(layer) {
+      const all = layer?.getLatLngs?.();
+      if (!Array.isArray(all)) return [];
+      let cur = all;
+      while (Array.isArray(cur) && cur.length && Array.isArray(cur[0])) {
+        cur = cur[0];
+      }
+      if (!Array.isArray(cur)) return [];
+      return cur.filter((pt) => Number.isFinite(pt?.lat) && Number.isFinite(pt?.lng));
+    }
+
+    function edgeMidpointsBySide(layer) {
+      const ring = firstRingLatLngs(layer);
+      if (ring.length < 3) return null;
+      const points = [...ring];
+      const first = points[0];
+      const last = points[points.length - 1];
+      if (first.lat !== last.lat || first.lng !== last.lng) {
+        points.push(first);
+      }
+
+      const mids = [];
+      for (let i = 0; i < points.length - 1; i += 1) {
+        const a = points[i];
+        const b = points[i + 1];
+        mids.push({ lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 });
+      }
+      if (!mids.length) return null;
+
+      let north = mids[0];
+      let south = mids[0];
+      let west = mids[0];
+      let east = mids[0];
+      for (const mid of mids) {
+        if (mid.lat > north.lat) north = mid;
+        if (mid.lat < south.lat) south = mid;
+        if (mid.lng < west.lng) west = mid;
+        if (mid.lng > east.lng) east = mid;
+      }
+
+      const distinctCount = new Set([
+        `${north.lat},${north.lng}`,
+        `${south.lat},${south.lng}`,
+        `${west.lat},${west.lng}`,
+        `${east.lat},${east.lng}`
+      ]).size;
+      if (distinctCount < 3) return null;
+      return { north, south, west, east };
+    }
+
+    function describeLookupError(err) {
+      if (!err) return "unknown error";
+      if (err.name === "AbortError") return "timeout";
+      const msg = String(err.message || "").trim();
+      if (/HTTP\s+429/i.test(msg)) return "HTTP 429 (rate limited)";
+      if (/HTTP\s+([45]\\d\\d)/i.test(msg)) return msg;
+      return msg || err.name || "unknown error";
+    }
+
+    function shouldBackoffForError(msg) {
+      const m = String(msg || "").toLowerCase();
+      return m.includes("429") || m.includes("failed to fetch");
+    }
+
+    async function httpErrorFromResponse(res) {
+      const status = Number(res?.status || 0);
+      let detail = "";
+      try {
+        const text = await res.clone().text();
+        if (text) detail = String(text).trim();
+      } catch {}
+      return new Error(`HTTP ${status}${detail ? `: ${detail}` : ""}`);
+    }
+
+    function parseRoadFromNominatim(data) {
+      const addr = data?.address || {};
+      return shortRoadName(
+        addr.road ||
+        addr.pedestrian ||
+        addr.residential ||
+        addr.footway ||
+        addr.path ||
+        ""
+      );
+    }
+
+    async function reverseRoadNameFor(lat, lng, opts = {}) {
+      const timeoutMs = Number.isFinite(opts.timeoutMs) ? Number(opts.timeoutMs) : 2200;
+      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&addressdetails=1&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}`;
+      try {
+        const data = await scheduleGeocodeCall(async () => {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+          try {
+            const res = await fetch(url, {
+              signal: ctrl.signal,
+              headers: { Accept: "application/json" }
+            });
+            if (!res.ok) throw await httpErrorFromResponse(res);
+            return res.json();
+          } finally {
+            clearTimeout(timer);
+          }
+        });
+        const road = parseRoadFromNominatim(data);
+        state.geocodeBackoffUntil = 0;
+        state.hasSuccessfulGeocode = true;
+        return { road, error: "" };
+      } catch (err) {
+        const msg = describeLookupError(err);
+        if (shouldBackoffForError(msg)) {
+          state.geocodeBackoffUntil = Math.max(state.geocodeBackoffUntil, Date.now() + GEOCODE_FAILURE_BACKOFF_MS);
+        }
+        return { road: "", error: msg };
+      }
+    }
+
+    async function reverseRoadAt(point, opts = {}) {
+      return reverseRoadNameFor(point.lat, point.lng, opts);
+    }
+
+    async function suggestAreaNameFromBoundsDetails(layer, opts = {}) {
+      const reverseOpts = opts.reverseOpts || {};
+      const totalBudgetMs = Number.isFinite(opts.totalBudgetMs) ? Number(opts.totalBudgetMs) : 5200;
+      const startedAt = Date.now();
+      const empty = {
+        northRoad: "",
+        southRoad: "",
+        westRoad: "",
+        eastRoad: "",
+        northError: "",
+        southError: "",
+        westError: "",
+        eastError: "",
+        northSouth: "",
+        westEast: "",
+        suggested: "",
+        failedPoint: ""
+      };
+      if (!layer || typeof layer.getBounds !== "function") return empty;
+      const bounds = layer.getBounds();
+      if (!bounds || !bounds.isValid()) return empty;
+      const center = bounds.getCenter();
+      const boundsPoints = {
+        north: { lat: bounds.getNorth(), lng: center.lng },
+        south: { lat: bounds.getSouth(), lng: center.lng },
+        west: { lat: center.lat, lng: bounds.getWest() },
+        east: { lat: center.lat, lng: bounds.getEast() }
+      };
+      const points = edgeMidpointsBySide(layer) || boundsPoints;
+
+      const north = await reverseRoadAt(points.north, reverseOpts);
+      const south = await reverseRoadAt(points.south, reverseOpts);
+      let west = { road: "", error: "" };
+      let east = { road: "", error: "" };
+      if (Date.now() - startedAt < totalBudgetMs) {
+        west = await reverseRoadAt(points.west, reverseOpts);
+      } else {
+        west.error = "skipped (time budget)";
+      }
+      if (Date.now() - startedAt < totalBudgetMs) {
+        east = await reverseRoadAt(points.east, reverseOpts);
+      } else {
+        east.error = "skipped (time budget)";
+      }
+
+      const northRoad = north.road || "";
+      const southRoad = south.road || "";
+      const westRoad = west.road || "";
+      const eastRoad = east.road || "";
+
+      const northSouthPair = orderedRoadPair(southRoad, northRoad).filter(Boolean);
+      const westEastPair = orderedRoadPair(westRoad, eastRoad).filter(Boolean);
+      let northSouth = northSouthPair.length === 2 ? compactRoadPair(northSouthPair[0], northSouthPair[1]) : "";
+      let westEast = westEastPair.length === 2 ? compactRoadPair(westEastPair[0], westEastPair[1]) : "";
+      if (northSouth && westEast) {
+        const samePair = pairSignature(northSouthPair[0], northSouthPair[1]) === pairSignature(westEastPair[0], westEastPair[1]);
+        if (samePair) {
+          if (northSouth.length <= westEast.length) westEast = "";
+          else northSouth = "";
+        }
+      }
+
+      let suggested = "";
+      if (northSouth && westEast) {
+        const nsScore = roadTypeScore(northSouthPair[0]) + roadTypeScore(northSouthPair[1]);
+        const weScore = roadTypeScore(westEastPair[0]) + roadTypeScore(westEastPair[1]);
+        suggested = nsScore >= weScore ? `${northSouth}/${westEast}` : `${westEast}/${northSouth}`;
+      }
+      if (!suggested && northSouth) suggested = northSouth;
+      if (!suggested && westEast) suggested = westEast;
+      if (!suggested) {
+        const roads = [northRoad, southRoad, westRoad, eastRoad].filter(Boolean);
+        const uniq = Array.from(new Set(roads.map((r) => r.toLowerCase()))).map((k) =>
+          roads.find((r) => r.toLowerCase() === k) || ""
+        ).filter(Boolean);
+        if (uniq.length >= 2) {
+          const pair = orderedRoadPair(uniq[0], uniq[1]);
+          suggested = compactRoadPair(pair[0], pair[1]) || `${pair[0]}-${pair[1]}`;
+        } else if (uniq.length === 1) {
+          suggested = uniq[0];
+        }
+      }
+
+      return {
+        northRoad,
+        southRoad,
+        westRoad,
+        eastRoad,
+        northError: north.error || "",
+        southError: south.error || "",
+        westError: west.error || "",
+        eastError: east.error || "",
+        northSouth,
+        westEast,
+        suggested,
+        failedPoint: ""
+      };
+    }
+
+    function geocodeProviderLabel() {
+      return "Nominatim";
+    }
+
+    function refreshNameSuggestHelp() {
+      if (!els.nameSuggestHelp) return;
+      els.nameSuggestHelp.textContent = "New areas: auto-name via Nominatim, but edit as you wish.";
+    }
+
+    async function autoSuggestNameForNewLayer(layer) {
+      const p = ensureFeatureScaffold(layer).properties;
+      if (String(p.name || "").trim()) return;
+      const provider = geocodeProviderLabel();
+      setSuggestModalOpen(true, `Trying ${provider} to suggest a name...`);
+      setStatus(`Trying ${provider} to suggest an area name...`);
+      try {
+        if (!state.geocodeWarmupDone) void ensureGeocodeWarmup();
+        const details = await suggestAreaNameFromBoundsDetails(layer, {
+          totalBudgetMs: 5200,
+          reverseOpts: { timeoutMs: state.hasSuccessfulGeocode ? 1600 : 2800 }
+        });
+        const suggested = details.suggested || "";
+        if (!suggested || String(p.name || "").trim()) {
+          if (!String(p.name || "").trim()) {
+            const errs = [details.northError, details.southError, details.westError, details.eastError].filter(Boolean);
+            if (errs.length) {
+              setStatus(`No suggestion from ${provider}. Some lookups failed (${errs.length}/4). Enter a name manually.`, true);
+            } else {
+              setStatus(`No suggestion from ${provider}. Enter a name manually.`);
+            }
+          }
+          return;
+        }
+        p.name = suggested;
+        if (state.selectedLayer === layer && !String(els.f_name.value || "").trim()) {
+          els.f_name.value = suggested;
+        }
+        updateLayerLabel(layer);
+        refreshList();
+        markDirty();
+        setStatus(`Suggested name via ${provider}: ${suggested}`);
+      } finally {
+        setSuggestModalOpen(false);
+      }
     }
 
     function syncFooterHeight() {
@@ -1465,6 +2003,13 @@
       const layer = e.layer;
       bindLayer(layer);
       setSelected(layer);
+      setSuggestModalOpen(true, "Trying Nominatim to suggest a name...");
+      setStatus("Trying Nominatim to suggest an area name...");
+      autoSuggestNameForNewLayer(layer).catch((err) => {
+        setSuggestModalOpen(false);
+        const msg = String(err?.message || "Unexpected error");
+        setStatus(`Name suggestion failed: ${msg}`, true);
+      });
       refreshList();
       markDirty();
       scheduleLabelDeclutter();
@@ -1646,6 +2191,7 @@
     });
     setSelected(null);
     setAdvancedMode(false);
+    refreshNameSuggestHelp();
     refreshSaveState();
     syncFooterHeight();
     window.addEventListener("resize", syncFooterHeight);
@@ -1657,6 +2203,7 @@
     map.on("moveend", scheduleLabelDeclutter);
 
     setOnlineTiles();
+    setStatus(`Geocoder: ${geocodeProviderLabel()}.`);
 
     function initPanelResize() {
       if (!panelResizer) return;
