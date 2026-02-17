@@ -60,7 +60,6 @@
     }
     textarea { min-height: 70px; resize: vertical; }
     button { cursor: pointer; }
-    .btnrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
     .actionRowCompact {
       margin-top: 0;
       display: grid;
@@ -108,7 +107,6 @@
     .sectionTitle { font-weight: 700; }
     .titleStrong { font-weight: 700; }
     .btnAutoWidth { width: auto; }
-    .btnrowSingle { grid-template-columns: 1fr; }
     .fileInputHidden { display: none; }
     .statusWrap {
       position: fixed;
@@ -209,27 +207,6 @@
     }
     .item b { font-size: 13px; }
     .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid #ddd; color: #444; width: fit-content; }
-    .hintBox {
-      margin-top: 6px;
-      padding: 8px 10px;
-      border: 1px solid #e3e5e8;
-      border-radius: 8px;
-      background: #f6f7f8;
-      color: #4b5563;
-    }
-    .hintBox.active {
-      border-color: #bfdbfe;
-      background: #eff6ff;
-      color: #1e3a8a;
-    }
-    .hintTitle {
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.03em;
-      margin-bottom: 2px;
-    }
-    .hintText { font-size: 12px; line-height: 1.35; }
     .suggestModal {
       position: fixed;
       inset: 0;
@@ -557,7 +534,7 @@
       </div>
       <div class="shortcutsGrid">
         <div><span class="shortcutKey">A</span></div><div>Fit all areas</div>
-        <div><span class="shortcutKey">S</span></div><div>Fit selected area</div>
+        <div><span class="shortcutKey">S</span></div><div>Fit selected area (map)</div>
         <div><span class="shortcutKey">B</span></div><div>Toggle sidebar</div>
         <div><span class="shortcutKey">D</span></div><div>Start drawing an area</div>
         <div><span class="shortcutKey">O</span></div><div>Open/import file</div>
