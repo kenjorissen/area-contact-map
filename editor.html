@@ -1,0 +1,1739 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Area Editor</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
+
+  <style>
+    :root {
+      --panel-w: 360px;
+      --status-h: 0px;
+    }
+    html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    #app {
+      height: 100%;
+      box-sizing: border-box;
+      padding-bottom: var(--status-h);
+      display: grid;
+      grid-template-columns: var(--panel-w) 8px 1fr;
+    }
+    #panel { border-right: 1px solid #ddd; padding: 12px; overflow: hidden; display: flex; flex-direction: column; gap: 10px; }
+    .panelHeader {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      background: #f8fafc;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
+    }
+    #panelResizer {
+      cursor: col-resize;
+      background: linear-gradient(to right, #f2f2f2, #f7f7f7, #f2f2f2);
+      border-right: 1px solid #ddd;
+      border-left: 1px solid #ddd;
+      touch-action: none;
+    }
+    #panelResizer:hover { background: linear-gradient(to right, #ececec, #f3f3f3, #ececec); }
+    body.resizing { cursor: col-resize; user-select: none; }
+    #map { height: 100%; }
+    body.sidebarCollapsed #panel,
+    body.sidebarCollapsed #panelResizer { display: none; }
+    body.sidebarCollapsed #app { grid-template-columns: 1fr; }
+
+    .row { display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: center; margin: 8px 0; }
+    label { font-size: 12px; color: #333; }
+    input, select, button, textarea {
+      font: inherit; padding: 8px; border: 1px solid #ccc; border-radius: 8px; width: 100%;
+      box-sizing: border-box;
+    }
+    #panel button {
+      padding: 5px 8px;
+      font-size: 12px;
+      line-height: 1.2;
+    }
+    textarea { min-height: 70px; resize: vertical; }
+    button { cursor: pointer; }
+    .btnrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+    .actionRowCompact {
+      margin-top: 0;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px;
+    }
+    .actionRowCompact button {
+      padding: 3px 6px;
+      font-size: 11px;
+      line-height: 1.15;
+      border-radius: 6px;
+    }
+    .muted { color: #666; font-size: 12px; line-height: 1.35; }
+    .status {
+      flex: 1 1 auto;
+      min-width: 0;
+      margin-top: 0;
+      padding: 2px 7px;
+      border-radius: 7px;
+      background: #f4f4f4;
+      font-size: 11px;
+      color: #333;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .status.warn { background: #fff5e8; color: #7a4b00; }
+    .panelDivider { height: 1px; background: #eee; margin: 12px 0; }
+    .hidden { display: none; }
+    .sidebarBody {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      padding-right: 2px;
+      padding-bottom: 10px;
+    }
+    .sectionHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .sectionTitle { font-weight: 700; }
+    .titleStrong { font-weight: 700; }
+    .btnAutoWidth { width: auto; }
+    .btnrowSingle { grid-template-columns: 1fr; }
+    .fileInputHidden { display: none; }
+    .statusWrap {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 1000;
+      margin: 0;
+      box-sizing: border-box;
+      background: #fafafa;
+      border-top: 1px solid #ececec;
+      padding: 4px 8px;
+      box-shadow: 0 -1px 0 rgba(0, 0, 0, 0.03);
+    }
+    .statusHead {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .statusTitle {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: #4b5563;
+    }
+    .statusHint {
+      font-size: 11px;
+      color: #6b7280;
+      white-space: nowrap;
+    }
+    .statusHint.clickable {
+      cursor: pointer;
+      text-decoration: underline;
+      text-decoration-style: dotted;
+      text-underline-offset: 2px;
+    }
+    .statusExplain {
+      flex: 1 1 auto;
+      min-width: 160px;
+      font-size: 11px;
+      color: #6b7280;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .badge {
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      border: 1px solid #ccc;
+      background: #f7f7f7;
+      color: #333;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .badge.pending { background: #fff4e5; border-color: #f59e0b; color: #92400e; }
+    .badge.saved { background: #ecfdf3; border-color: #34d399; color: #166534; }
+    .badge.clickable { cursor: pointer; }
+    .btnPending { position: relative; }
+    .btnPending::after {
+      content: "";
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #f59e0b;
+      display: none;
+    }
+    .btnPending.pending::after { display: block; }
+
+    .areaListSection {
+      margin-top: 10px;
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .areaListSection input { margin-bottom: 8px; flex: 0 0 auto; }
+    .areaListScroll {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 2px;
+    }
+    .item {
+      border: 1px solid #eee; border-radius: 10px; padding: 8px; margin: 8px 0;
+      display: grid; gap: 4px;
+    }
+    .item.selected {
+      border-color: #2563eb;
+      background: #eff6ff;
+      box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.15);
+    }
+    .item b { font-size: 13px; }
+    .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid #ddd; color: #444; width: fit-content; }
+    .hintBox {
+      margin-top: 6px;
+      padding: 8px 10px;
+      border: 1px solid #e3e5e8;
+      border-radius: 8px;
+      background: #f6f7f8;
+      color: #4b5563;
+    }
+    .hintBox.active {
+      border-color: #bfdbfe;
+      background: #eff6ff;
+      color: #1e3a8a;
+    }
+    .hintTitle {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      margin-bottom: 2px;
+    }
+    .hintText { font-size: 12px; line-height: 1.35; }
+    .toggleRow {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+      font-size: 11px;
+      color: #374151;
+    }
+    .toggleRow input { width: auto; padding: 0; }
+    .toggleGrid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px 8px;
+      align-items: center;
+    }
+    .toggleGrid .toggleRow { margin-top: 0; }
+    .subSection {
+      margin-top: 10px;
+      padding: 8px 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      background: #f8fafc;
+    }
+    .subSectionTitle {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #4b5563;
+      margin-bottom: 4px;
+    }
+    .leaflet-tooltip.areaLabel {
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      box-shadow: none;
+      color: #111827;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 6px;
+    }
+    .leaflet-tooltip.areaLabel::before { display: none; }
+    .leaflet-tooltip.areaLabel.labelHidden { display: none; }
+    .areaLabelSub {
+      display: block;
+      margin-top: 1px;
+      font-size: 10px;
+      font-weight: 500;
+      color: #374151;
+    }
+    .areaLabelId {
+      display: block;
+      margin-top: 1px;
+      font-size: 10px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .shortcutsModal {
+      position: fixed;
+      inset: 0;
+      z-index: 2000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(15, 23, 42, 0.35);
+      padding: 16px;
+      box-sizing: border-box;
+    }
+    .shortcutsModal.open { display: flex; }
+    .shortcutsCard {
+      width: min(520px, 100%);
+      max-height: min(80vh, 640px);
+      overflow: auto;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      box-shadow: 0 14px 36px rgba(2, 8, 23, 0.25);
+      padding: 12px;
+    }
+    .shortcutsHead {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .shortcutsGrid {
+      display: grid;
+      grid-template-columns: 86px 1fr;
+      gap: 6px 10px;
+      font-size: 13px;
+    }
+    .shortcutKey {
+      display: inline-block;
+      padding: 1px 6px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      background: #f8fafc;
+      font-weight: 700;
+      width: fit-content;
+    }
+    .selectedEditor { display: none; }
+    .selectedEditor.drawerOpen {
+      display: block;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 1300;
+      width: min(420px, calc(100vw - 24px));
+      max-height: calc(100vh - var(--status-h) - 24px);
+      overflow: auto;
+      background: #fff;
+      border: 1px solid #dbe1e8;
+      border-radius: 10px;
+      box-shadow: 0 18px 42px rgba(2, 8, 23, 0.26);
+      padding: 10px;
+      box-sizing: border-box;
+    }
+    @media (max-width: 900px) {
+      .selectedEditor.drawerOpen {
+        top: auto;
+        right: 0;
+        left: 0;
+        transform: none;
+        bottom: var(--status-h);
+        width: 100%;
+        max-height: min(72vh, calc(100vh - var(--status-h) - 10px));
+        border-radius: 12px 12px 0 0;
+        box-shadow: 0 -10px 28px rgba(2, 8, 23, 0.24);
+      }
+    }
+    .drawerHead {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .editorBackdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 1200;
+      background: rgba(2, 8, 23, 0.24);
+      display: none;
+    }
+    .editorBackdrop.open { display: block; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="panel">
+      <div class="panelHeader">
+        <div>
+          <div class="titleStrong">Area editor</div>
+          <div class="muted">Draw areas, attach metadata, export GeoJSON.</div>
+        </div>
+      </div>
+
+      <div class="sidebarBody">
+        <div class="actionRowCompact">
+          <button id="btnOpen">Import</button>
+          <button id="btnExport" class="btnPending">Export</button>
+          <button id="btnNew">New</button>
+        </div>
+        <input id="fileInput" class="fileInputHidden" type="file" accept=".json,.geojson,application/geo+json,application/json">
+
+        <div id="selectedEditor" class="selectedEditor">
+          <div class="drawerHead">
+            <div class="sectionTitle">Selected area</div>
+            <button id="btnCloseEditor" class="btnAutoWidth">Close</button>
+          </div>
+          <div class="hintBox" id="selHintBox">
+            <div class="hintTitle" id="selHintTitle">State</div>
+            <div class="hintText" id="selHint">No area selected. Click on an existing area or draw a new area to start editing.</div>
+          </div>
+
+          <div id="selectionFields" class="hidden">
+            <div class="row hidden" id="rowAreaId">
+              <label for="f_area_id">Area ID</label>
+              <input id="f_area_id" placeholder="A-001" />
+            </div>
+
+            <div class="row">
+              <label for="f_name">Area name</label>
+              <input id="f_name" placeholder="area name" />
+            </div>
+
+            <div class="row">
+              <label for="f_contact">Contact</label>
+              <input id="f_contact" placeholder="contact name" />
+            </div>
+
+            <div class="row">
+              <label for="f_status">Status</label>
+              <select id="f_status">
+                <option value="">(blank)</option>
+                <option value="assigned">assigned</option>
+                <option value="unassigned">unassigned</option>
+                <option value="needs_backup">needs_backup</option>
+                <option value="inactive">inactive</option>
+              </select>
+            </div>
+
+            <div class="row">
+              <label for="f_notes">Notes</label>
+              <textarea id="f_notes" placeholder="Optional…"></textarea>
+            </div>
+
+            <div class="btnrow btnrowSingle">
+              <button id="btnZoom">Fit selected area</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="subSection">
+          <div class="subSectionTitle">View &amp; navigation</div>
+          <div class="toggleGrid">
+            <label class="toggleRow" for="toggleAdvanced">
+              <input id="toggleAdvanced" type="checkbox" />
+              <span>Show IDs</span>
+            </label>
+            <label class="toggleRow" for="toggleOtherLabels">
+              <input id="toggleOtherLabels" type="checkbox" checked />
+              <span>Show all labels</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="panelDivider"></div>
+
+        <div class="sectionHeader">
+          <div class="sectionTitle">Area List</div>
+          <button id="btnEditSelected" class="btnAutoWidth">Edit selected</button>
+        </div>
+        <div class="areaListSection">
+          <input id="search" placeholder="Search by id/name/contact…" />
+          <div id="items" class="areaListScroll"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="panelResizer" aria-hidden="true"></div>
+    <div id="map"></div>
+  </div>
+  <div class="statusWrap">
+    <div class="statusHead">
+      <div class="statusTitle">Status</div>
+      <div class="badge" id="badgeAutosave">Auto: unchanged</div>
+      <div class="badge" id="badgeExport">Export: unchanged</div>
+      <div class="statusExplain">Autosave is in-browser only. Import/Export to load/save to a file.</div>
+      <div class="status" id="status">Status: Ready.</div>
+      <div id="statusHintShortcuts" class="statusHint clickable" role="button" tabindex="0" aria-label="Open keyboard shortcuts">Shortcuts: ?</div>
+    </div>
+  </div>
+  <div id="editorBackdrop" class="editorBackdrop" aria-hidden="true"></div>
+  <div id="shortcutsModal" class="shortcutsModal" role="dialog" aria-modal="true" aria-labelledby="shortcutsTitle">
+    <div class="shortcutsCard">
+      <div class="shortcutsHead">
+        <div id="shortcutsTitle" class="titleStrong">Keyboard shortcuts</div>
+        <button id="btnCloseShortcuts" class="btnAutoWidth">Close</button>
+      </div>
+      <div class="shortcutsGrid">
+        <div><span class="shortcutKey">A</span></div><div>Fit all areas</div>
+        <div><span class="shortcutKey">S</span></div><div>Fit selected area</div>
+        <div><span class="shortcutKey">B</span></div><div>Toggle sidebar</div>
+        <div><span class="shortcutKey">D</span></div><div>Start drawing an area</div>
+        <div><span class="shortcutKey">O</span></div><div>Open/import file</div>
+        <div><span class="shortcutKey">E</span></div><div>Export GeoJSON</div>
+        <div><span class="shortcutKey">/</span></div><div>Focus search</div>
+        <div><span class="shortcutKey">I</span></div><div>Toggle Show IDs</div>
+        <div><span class="shortcutKey">L</span></div><div>Toggle Show all labels</div>
+        <div><span class="shortcutKey">Esc</span></div><div>Deselect selected area</div>
+        <div><span class="shortcutKey">?</span></div><div>Toggle this shortcuts panel</div>
+      </div>
+    </div>
+  </div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+
+  <script>
+    const DEFAULT_VIEW = [44.98, -93.265];
+    const DEFAULT_ZOOM = 13;
+    const ONLINE_TILE_TEMPLATE = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+    const ONLINE_TILE_ATTR = "&copy; OpenStreetMap contributors &copy; CARTO";
+    const AUTOSAVE_KEY = "area-editor-autosave-v1";
+    const PANEL_WIDTH_KEY = "area-editor-panel-width-v1";
+    const AUTOSAVE_DELAY_MS = 1200;
+    const LABEL_OFFSETS = (() => {
+      const offsets = [[0, 0]];
+      const dirs = [
+        [0, -1], [0, 1], [-1, 0], [1, 0],
+        [-1, -1], [1, -1], [-1, 1], [1, 1],
+        [-2, -1], [2, -1], [-2, 1], [2, 1],
+        [-1, -2], [1, -2], [-1, 2], [1, 2]
+      ];
+      const radii = [18, 28, 40, 56, 74, 94, 116, 142];
+      for (const r of radii) {
+        for (const [dx, dy] of dirs) {
+          const len = Math.hypot(dx, dy) || 1;
+          offsets.push([
+            Math.round((dx / len) * r),
+            Math.round((dy / len) * r)
+          ]);
+        }
+      }
+      return offsets;
+    })();
+    const STATUS_STYLE = {
+      assigned: { color: "#1f7a3f", fillColor: "#2fa85a" },
+      unassigned: { color: "#8a4f00", fillColor: "#d18a1b" },
+      needs_backup: { color: "#92400e", fillColor: "#f59e0b" },
+      inactive: { color: "#374151", fillColor: "#6b7280" },
+      blank: { color: "#1d4ed8", fillColor: "#3b82f6" }
+    };
+
+    const map = L.map("map", { preferCanvas: true });
+    map.setView(DEFAULT_VIEW, DEFAULT_ZOOM);
+    const panelResizer = document.getElementById("panelResizer");
+
+    const drawnItems = new L.FeatureGroup();
+    map.addLayer(drawnItems);
+
+    const state = {
+      selectedLayer: null,
+      tileLayer: null,
+      currentGeoJSONName: "areas.geojson",
+      exportFileHandle: null,
+      showAdvanced: false,
+      showOtherLabels: true,
+      editorDrawerOpen: false,
+      nextAreaIdNumber: 1,
+      dirtySinceAutosave: false,
+      dirtySinceExport: false,
+      lastAutosaveAt: null,
+      lastExportAt: null
+    };
+    let autosaveTimer = null;
+    let labelDeclutterFrame = null;
+    let sidebarToggleControlEl = null;
+
+    const els = {
+      btnOpen: document.getElementById("btnOpen"),
+      btnExport: document.getElementById("btnExport"),
+      btnNew: document.getElementById("btnNew"),
+      fileInput: document.getElementById("fileInput"),
+      statusWrap: document.querySelector(".statusWrap"),
+      status: document.getElementById("status"),
+      badgeAutosave: document.getElementById("badgeAutosave"),
+      badgeExport: document.getElementById("badgeExport"),
+      selHintBox: document.getElementById("selHintBox"),
+      selHintTitle: document.getElementById("selHintTitle"),
+      selHint: document.getElementById("selHint"),
+      selectedEditor: document.getElementById("selectedEditor"),
+      editorBackdrop: document.getElementById("editorBackdrop"),
+      selectionFields: document.getElementById("selectionFields"),
+      toggleAdvanced: document.getElementById("toggleAdvanced"),
+      toggleOtherLabels: document.getElementById("toggleOtherLabels"),
+      rowAreaId: document.getElementById("rowAreaId"),
+
+      f_area_id: document.getElementById("f_area_id"),
+      f_name: document.getElementById("f_name"),
+      f_contact: document.getElementById("f_contact"),
+      f_status: document.getElementById("f_status"),
+      f_notes: document.getElementById("f_notes"),
+
+      btnZoom: document.getElementById("btnZoom"),
+      btnCloseEditor: document.getElementById("btnCloseEditor"),
+      btnEditSelected: document.getElementById("btnEditSelected"),
+      statusHintShortcuts: document.getElementById("statusHintShortcuts"),
+      shortcutsModal: document.getElementById("shortcutsModal"),
+      btnCloseShortcuts: document.getElementById("btnCloseShortcuts"),
+
+      search: document.getElementById("search"),
+      items: document.getElementById("items"),
+    };
+
+    function setStatus(msg, warn = false) {
+      els.status.textContent = `Status: ${msg}`;
+      els.status.classList.toggle("warn", warn);
+    }
+
+    function syncFooterHeight() {
+      if (!els.statusWrap) return;
+      const h = Math.ceil(els.statusWrap.getBoundingClientRect().height || 0);
+      document.documentElement.style.setProperty("--status-h", `${h}px`);
+    }
+
+    function fmtTs(iso) {
+      if (!iso) return "never";
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return "never";
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+
+    function refreshSaveState() {
+      const autosaveText = state.dirtySinceAutosave
+        ? "Auto: pending"
+        : state.lastAutosaveAt
+          ? `Auto: saved ${fmtTs(state.lastAutosaveAt)}`
+          : "Auto: unchanged";
+      const exportText = state.dirtySinceExport
+        ? "Export: pending"
+        : state.lastExportAt
+          ? `Export: done ${fmtTs(state.lastExportAt)}`
+          : "Export: unchanged";
+
+      els.badgeAutosave.textContent = autosaveText;
+      els.badgeExport.textContent = exportText;
+      els.badgeAutosave.className = `badge ${state.dirtySinceAutosave ? "pending" : "saved"}`;
+      els.badgeExport.className = `badge clickable ${state.dirtySinceExport ? "pending" : "saved"}`;
+      els.btnExport.textContent = state.dirtySinceExport ? "Export (unsaved)" : "Export";
+      els.btnExport.classList.toggle("pending", state.dirtySinceExport);
+    }
+
+    function markDirty() {
+      state.dirtySinceAutosave = true;
+      state.dirtySinceExport = true;
+      refreshSaveState();
+      scheduleAutosave();
+    }
+
+    function markCleanFromLoad() {
+      if (autosaveTimer) {
+        clearTimeout(autosaveTimer);
+        autosaveTimer = null;
+      }
+      state.dirtySinceAutosave = false;
+      state.dirtySinceExport = false;
+      refreshSaveState();
+    }
+
+    function setAdvancedMode(show) {
+      state.showAdvanced = !!show;
+      els.rowAreaId.classList.toggle("hidden", !state.showAdvanced);
+      els.toggleAdvanced.checked = state.showAdvanced;
+      els.search.placeholder = state.showAdvanced
+        ? "Search by id/name/contact…"
+        : "Search by name/contact…";
+      refreshList();
+      refreshAllLayerLabels();
+    }
+
+    function styleForFeature(f) {
+      const status = (f?.properties?.status || "").toLowerCase();
+      const isUnassigned = status === "unassigned" || status === "";
+      const palette = STATUS_STYLE[status] || STATUS_STYLE.blank;
+      return {
+        color: palette.color,
+        fillColor: palette.fillColor,
+        weight: isUnassigned ? 4 : 2,
+        fillOpacity: isUnassigned ? 0.28 : 0.20
+      };
+    }
+
+    function paletteForStatus(status) {
+      return STATUS_STYLE[(status || "").toLowerCase()] || STATUS_STYLE.blank;
+    }
+
+    function hexToRgba(hex, alpha) {
+      const clean = String(hex || "").replace("#", "");
+      if (!/^[0-9a-fA-F]{6}$/.test(clean)) return `rgba(107,114,128,${alpha})`;
+      const n = Number.parseInt(clean, 16);
+      const r = (n >> 16) & 255;
+      const g = (n >> 8) & 255;
+      const b = n & 255;
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+    function applyLayerStyle(layer) {
+      const base = styleForFeature(layer.feature);
+      const isSelected = state.selectedLayer === layer;
+      layer.setStyle({
+        ...base,
+        weight: isSelected ? Math.max(base.weight + 2, 5) : base.weight,
+        fillOpacity: isSelected ? Math.min(base.fillOpacity + 0.12, 0.45) : base.fillOpacity,
+        dashArray: isSelected ? "6 4" : null
+      });
+    }
+
+    function labelPrimaryText(p) {
+      const name = String(p?.name || "").trim();
+      return name || "(unnamed)";
+    }
+
+    function labelIdText(p) {
+      return areaIdValue(p);
+    }
+
+    function labelSecondaryText(p) {
+      return contactValue(p);
+    }
+
+    function shouldShowContactLabel(layer) {
+      return state.selectedLayer === layer || map.getZoom() >= 16;
+    }
+
+    function updateLayerLabel(layer) {
+      const isSelected = state.selectedLayer === layer;
+      if (!isSelected && !state.showOtherLabels) {
+        if (layer.getTooltip()) layer.unbindTooltip();
+        return;
+      }
+
+      const p = layer.feature?.properties || {};
+      const primary = labelPrimaryText(p);
+      const areaId = labelIdText(p);
+      const contact = labelSecondaryText(p);
+      const showContact = shouldShowContactLabel(layer) && contact;
+      const showId = state.showAdvanced && areaId;
+      const html = showContact
+        ? `${escapeHtml(primary)}${showId ? `<span class="areaLabelId">${escapeHtml(areaId)}</span>` : ""}<span class="areaLabelSub">${escapeHtml(contact)}</span>`
+        : `${escapeHtml(primary)}${showId ? `<span class="areaLabelId">${escapeHtml(areaId)}</span>` : ""}`;
+
+      if (layer.getTooltip()) layer.unbindTooltip();
+      layer.bindTooltip(html, {
+        permanent: true,
+        direction: "center",
+        className: "areaLabel",
+        interactive: false
+      });
+      layer.openTooltip();
+    }
+
+    function refreshAllLayerLabels() {
+      drawnItems.eachLayer((layer) => updateLayerLabel(layer));
+      scheduleLabelDeclutter();
+    }
+
+    function rectsOverlap(a, b) {
+      return !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom);
+    }
+
+    function overlapArea(a, b) {
+      const w = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+      const h = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+      return w * h;
+    }
+
+    function shiftedRect(rect, dx, dy) {
+      return {
+        left: rect.left + dx,
+        right: rect.right + dx,
+        top: rect.top + dy,
+        bottom: rect.bottom + dy
+      };
+    }
+
+    function outsideDistance(rect, viewport) {
+      let outside = 0;
+      if (rect.left < viewport.left) outside += viewport.left - rect.left;
+      if (rect.right > viewport.right) outside += rect.right - viewport.right;
+      if (rect.top < viewport.top) outside += viewport.top - rect.top;
+      if (rect.bottom > viewport.bottom) outside += rect.bottom - viewport.bottom;
+      return outside;
+    }
+
+    function layerPriority(layer) {
+      if (state.selectedLayer === layer) return Number.MAX_SAFE_INTEGER;
+      try {
+        const b = layer.getBounds?.();
+        if (!b?.isValid?.()) return 0;
+        const nw = map.latLngToContainerPoint(b.getNorthWest());
+        const se = map.latLngToContainerPoint(b.getSouthEast());
+        return Math.abs((se.x - nw.x) * (se.y - nw.y));
+      } catch {
+        return 0;
+      }
+    }
+
+    function runLabelDeclutter() {
+      labelDeclutterFrame = null;
+      const candidates = [];
+      const viewport = map.getContainer().getBoundingClientRect();
+
+      drawnItems.eachLayer((layer) => {
+        const tip = layer.getTooltip?.();
+        const el = tip?.getElement?.();
+        if (!el) return;
+        el.classList.remove("labelHidden");
+        el.style.marginLeft = "0px";
+        el.style.marginTop = "0px";
+        candidates.push({
+          layer,
+          selected: state.selectedLayer === layer,
+          rect: el.getBoundingClientRect(),
+          area: Math.max(1, el.offsetWidth * el.offsetHeight),
+          priority: layerPriority(layer),
+          el
+        });
+      });
+
+      candidates.sort((a, b) => {
+        if (a.selected !== b.selected) return a.selected ? -1 : 1;
+        return b.priority - a.priority;
+      });
+
+      const kept = [];
+      for (const c of candidates) {
+        let best = null;
+        for (const [dx, dy] of LABEL_OFFSETS) {
+          const moved = shiftedRect(c.rect, dx, dy);
+          let overlaps = 0;
+          let overlapPixels = 0;
+          for (const k of kept) {
+            if (rectsOverlap(moved, k)) {
+              overlaps += 1;
+              overlapPixels += overlapArea(moved, k);
+            }
+          }
+          const outside = outsideDistance(moved, viewport);
+          const distance = Math.abs(dx) + Math.abs(dy);
+          const score = overlaps * 4000 + overlapPixels * 2 + outside * 12 + distance;
+          if (!best || score < best.score) {
+            best = { dx, dy, moved, overlaps, overlapPixels, score };
+            if (score === 0) break;
+          }
+        }
+        if (!best) continue;
+        c.el.style.marginLeft = `${best.dx}px`;
+        c.el.style.marginTop = `${best.dy}px`;
+        const hide = !c.selected && best.overlaps > 0 && best.overlapPixels > (c.area * 0.4);
+        c.el.classList.toggle("labelHidden", hide);
+        if (!hide) kept.push(best.moved);
+      }
+    }
+
+    function scheduleLabelDeclutter() {
+      if (labelDeclutterFrame) cancelAnimationFrame(labelDeclutterFrame);
+      labelDeclutterFrame = requestAnimationFrame(runLabelDeclutter);
+    }
+
+    function addTileLayer(urlTemplate, attributionText = "") {
+      if (!urlTemplate) return;
+      const cleanTemplate = urlTemplate.trim();
+      if (!cleanTemplate) return;
+
+      if (state.tileLayer) {
+        map.removeLayer(state.tileLayer);
+      }
+
+      state.tileLayer = L.tileLayer(cleanTemplate, {
+        maxZoom: 20,
+        attribution: attributionText || ""
+      });
+      state.tileLayer.addTo(map);
+
+      setStatus(`Tiles: ${cleanTemplate}`);
+    }
+
+    function setOnlineTiles() {
+      addTileLayer(ONLINE_TILE_TEMPLATE, ONLINE_TILE_ATTR);
+    }
+
+    function saveAutosaveSnapshot(gj, opts = {}) {
+      const payload = {
+        savedAt: new Date().toISOString(),
+        data: gj,
+        dirtySinceExport: opts.dirtySinceExport ?? state.dirtySinceExport
+      };
+      localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(payload));
+      state.lastAutosaveAt = payload.savedAt;
+      state.dirtySinceAutosave = false;
+      refreshSaveState();
+      return payload;
+    }
+
+    function performAutosave() {
+      autosaveTimer = null;
+      if (!state.dirtySinceAutosave) return;
+      const gj = exportGeoJSON();
+      saveAutosaveSnapshot(gj);
+      setStatus("Autosaved to browser storage.");
+    }
+
+    function scheduleAutosave() {
+      if (autosaveTimer) clearTimeout(autosaveTimer);
+      autosaveTimer = setTimeout(performAutosave, AUTOSAVE_DELAY_MS);
+    }
+
+    addSidebarToggleControl();
+    addZoomAllControl();
+
+    L.drawLocal.draw.toolbar.buttons.polygon = "Draw a new area";
+    L.drawLocal.draw.handlers.polygon.tooltip.start = "Click to start a new area";
+    L.drawLocal.draw.handlers.polygon.tooltip.cont = "Click to continue the area";
+    L.drawLocal.draw.handlers.polygon.tooltip.end = "Click first point to finish";
+    L.drawLocal.edit.toolbar.buttons.edit = "Edit areas";
+    L.drawLocal.edit.toolbar.buttons.editDisabled = "No areas to edit";
+    L.drawLocal.edit.toolbar.buttons.remove = "Delete areas";
+    L.drawLocal.edit.toolbar.buttons.removeDisabled = "No areas to delete";
+    L.drawLocal.edit.toolbar.actions.save.title = "Save area edits";
+    L.drawLocal.edit.toolbar.actions.cancel.title = "Cancel area edits";
+
+    const drawControl = new L.Control.Draw({
+      position: "topleft",
+      draw: {
+        polygon: {
+          allowIntersection: false,
+          showArea: true,
+          shapeOptions: { fillOpacity: 0.15 }
+        },
+        polyline: false,
+        rectangle: false,
+        circle: false,
+        circlemarker: false,
+        marker: false
+      },
+      edit: { featureGroup: drawnItems }
+    });
+    map.addControl(drawControl);
+
+    function setSelected(layer) {
+      const prev = state.selectedLayer;
+      state.selectedLayer = layer;
+      if (prev && drawnItems.hasLayer(prev)) {
+        applyLayerStyle(prev);
+        updateLayerLabel(prev);
+      }
+
+      if (!layer) {
+        setEditorDrawerOpen(false);
+        els.selectionFields.classList.add("hidden");
+        els.selHintBox.classList.remove("active");
+        els.selHintTitle.textContent = "State";
+        els.selHint.textContent = "No area selected. Click on an existing area or draw a new area to start editing.";
+        els.f_area_id.value = "";
+        els.f_name.value = "";
+        els.f_contact.value = "";
+        els.f_status.value = "";
+        els.f_notes.value = "";
+        scheduleLabelDeclutter();
+        refreshSelectionActions();
+        refreshList();
+        return;
+      }
+
+      const p = layer.feature?.properties || {};
+      els.selectionFields.classList.remove("hidden");
+      els.selHintBox.classList.add("active");
+      els.selHintTitle.textContent = "Editing";
+      els.selHint.textContent = "Changes below auto-save to this selected area.";
+      els.f_area_id.value = areaIdValue(p);
+      els.f_name.value = p.name || "";
+      els.f_contact.value = contactValue(p);
+      els.f_status.value = p.status || "";
+      els.f_notes.value = p.notes || "";
+      applyLayerStyle(layer);
+      updateLayerLabel(layer);
+      scheduleLabelDeclutter();
+      refreshSelectionActions();
+      refreshList();
+    }
+
+    function ensureFeatureScaffold(layer) {
+      layer.feature = layer.feature || { type: "Feature", properties: {}, geometry: null };
+      layer.feature.properties = layer.feature.properties || {};
+      return layer.feature;
+    }
+
+    function areaIdValue(properties) {
+      return String(properties?.area_id || "").trim();
+    }
+
+    function contactValue(properties) {
+      return String(properties?.contact || "").trim();
+    }
+
+    function setAreaId(properties, value) {
+      const next = String(value || "").trim();
+      if (next) properties.area_id = next;
+      else delete properties.area_id;
+    }
+
+    function setContact(properties, value) {
+      const next = String(value || "").trim();
+      if (next) properties.contact = next;
+      else delete properties.contact;
+    }
+
+    function parseAreaIdNumber(areaId) {
+      const match = String(areaId || "").trim().match(/^A-(\d+)$/i);
+      if (!match) return null;
+      const n = Number.parseInt(match[1], 10);
+      return Number.isFinite(n) ? n : null;
+    }
+
+    function existingAreaIdSet() {
+      const ids = new Set();
+      drawnItems.eachLayer((layer) => {
+        const id = areaIdValue(layer.feature?.properties);
+        if (id) ids.add(id);
+      });
+      return ids;
+    }
+
+    function recomputeNextAreaIdNumber() {
+      let max = 0;
+      drawnItems.eachLayer((layer) => {
+        const n = parseAreaIdNumber(areaIdValue(layer.feature?.properties));
+        if (n && n > max) max = n;
+      });
+      state.nextAreaIdNumber = max + 1;
+    }
+
+    function generateNextAreaId() {
+      const used = existingAreaIdSet();
+      let n = state.nextAreaIdNumber;
+      while (used.has(`A-${String(n).padStart(4, "0")}`)) n += 1;
+      state.nextAreaIdNumber = n + 1;
+      return `A-${String(n).padStart(4, "0")}`;
+    }
+
+    function ensureAreaId(layer) {
+      const p = ensureFeatureScaffold(layer).properties;
+      if (!areaIdValue(p)) {
+        setAreaId(p, generateNextAreaId());
+      }
+      const n = parseAreaIdNumber(areaIdValue(p));
+      if (n && n >= state.nextAreaIdNumber) state.nextAreaIdNumber = n + 1;
+    }
+
+    function applyToSelected() {
+      if (!state.selectedLayer) return;
+
+      const p = ensureFeatureScaffold(state.selectedLayer).properties;
+      const prevAreaId = areaIdValue(p);
+      const prevName = p.name || "";
+      const prevContact = contactValue(p);
+      const prevStatus = p.status || "";
+      const prevNotes = p.notes || "";
+      const enteredAreaId = els.f_area_id.value.trim();
+      if (state.showAdvanced) {
+        setAreaId(p, enteredAreaId || areaIdValue(p) || generateNextAreaId());
+      } else if (!areaIdValue(p)) {
+        setAreaId(p, generateNextAreaId());
+      }
+      const nextName = els.f_name.value.trim();
+      const nextContact = els.f_contact.value.trim();
+      const nextStatus = els.f_status.value.trim();
+      const nextNotes = els.f_notes.value.trim();
+      const changed =
+        prevAreaId !== areaIdValue(p) ||
+        prevName !== nextName ||
+        prevContact !== nextContact ||
+        prevStatus !== nextStatus ||
+        prevNotes !== nextNotes;
+
+      p.name = nextName;
+      setContact(p, nextContact);
+      p.status = nextStatus;
+      p.notes = nextNotes;
+
+      applyLayerStyle(state.selectedLayer);
+      updateLayerLabel(state.selectedLayer);
+      refreshList();
+      if (changed) markDirty();
+    }
+
+    function zoomToSelected() {
+      if (!state.selectedLayer) return;
+      map.fitBounds(state.selectedLayer.getBounds(), { padding: [20, 20] });
+    }
+
+    function setEditorDrawerOpen(open) {
+      const next = !!open && !!state.selectedLayer;
+      state.editorDrawerOpen = next;
+      els.selectedEditor.classList.toggle("drawerOpen", next);
+      els.editorBackdrop.classList.toggle("open", next);
+    }
+
+    function refreshSelectionActions() {
+      els.btnEditSelected.disabled = !state.selectedLayer;
+    }
+
+    function setShortcutsModalOpen(open) {
+      const isOpen = !!open;
+      els.shortcutsModal.classList.toggle("open", isOpen);
+    }
+
+    function zoomToAll() {
+      const layers = drawnItems.getLayers();
+      if (!layers.length) {
+        map.setView(DEFAULT_VIEW, DEFAULT_ZOOM);
+        setStatus("No areas yet. Reset to default view.");
+        return;
+      }
+      map.fitBounds(drawnItems.getBounds(), { padding: [20, 20] });
+    }
+
+    function refreshSidebarControlLabel() {
+      if (!sidebarToggleControlEl) return;
+      const collapsed = document.body.classList.contains("sidebarCollapsed");
+      const label = collapsed ? "Show sidebar" : "Hide sidebar";
+      sidebarToggleControlEl.textContent = collapsed ? ">>" : "<<";
+      sidebarToggleControlEl.title = label;
+      sidebarToggleControlEl.setAttribute("aria-label", label);
+    }
+
+    function addSidebarToggleControl() {
+      const SidebarToggleControl = L.Control.extend({
+        onAdd() {
+          const container = L.DomUtil.create("div", "leaflet-bar");
+          const link = L.DomUtil.create("a", "", container);
+          link.href = "#";
+          link.setAttribute("role", "button");
+          link.style.width = "auto";
+          link.style.minWidth = "30px";
+          link.style.padding = "0 8px";
+          link.style.textDecoration = "none";
+          link.style.fontWeight = "700";
+
+          L.DomEvent.disableClickPropagation(container);
+          L.DomEvent.on(link, "click", (e) => {
+            L.DomEvent.preventDefault(e);
+            const collapsed = document.body.classList.contains("sidebarCollapsed");
+            setSidebarCollapsed(!collapsed);
+          });
+
+          sidebarToggleControlEl = link;
+          refreshSidebarControlLabel();
+          requestAnimationFrame(() => {
+            const corner = map?._controlCorners?.topleft;
+            if (corner && corner.firstChild !== container) {
+              corner.insertBefore(container, corner.firstChild);
+            }
+          });
+          return container;
+        },
+        onRemove() {
+          sidebarToggleControlEl = null;
+        }
+      });
+
+      map.addControl(new SidebarToggleControl({ position: "topleft" }));
+    }
+
+    function addZoomAllControl() {
+      const ZoomAllControl = L.Control.extend({
+        onAdd() {
+          const container = L.DomUtil.create("div", "leaflet-bar");
+          const link = L.DomUtil.create("a", "", container);
+          link.href = "#";
+          link.textContent = "⤢";
+          link.setAttribute("role", "button");
+          link.title = "Fit all areas";
+          link.setAttribute("aria-label", "Fit all areas");
+          link.style.width = "auto";
+          link.style.minWidth = "26px";
+          link.style.padding = "0 4px";
+          link.style.textDecoration = "none";
+          link.style.fontWeight = "700";
+
+          L.DomEvent.disableClickPropagation(container);
+          L.DomEvent.on(link, "click", (e) => {
+            L.DomEvent.preventDefault(e);
+            zoomToAll();
+          });
+
+          return container;
+        }
+      });
+
+      map.addControl(new ZoomAllControl({ position: "topleft" }));
+    }
+
+    function setSidebarCollapsed(collapsed) {
+      const next = !!collapsed;
+      if (document.body.classList.contains("sidebarCollapsed") === next) return;
+      document.body.classList.toggle("sidebarCollapsed", next);
+      refreshSidebarControlLabel();
+      requestAnimationFrame(() => {
+        map.invalidateSize({ pan: false });
+        scheduleLabelDeclutter();
+      });
+    }
+
+    function bindLayer(layer) {
+      ensureFeatureScaffold(layer);
+      if (!layer.feature.properties.status) layer.feature.properties.status = "unassigned";
+      ensureAreaId(layer);
+      applyLayerStyle(layer);
+      updateLayerLabel(layer);
+      layer.on("click", () => {
+        setSelected(layer);
+      });
+      layer.on("dblclick", (e) => {
+        if (e?.originalEvent) {
+          L.DomEvent.preventDefault(e.originalEvent);
+          L.DomEvent.stopPropagation(e.originalEvent);
+        }
+        L.DomEvent.stopPropagation(e);
+        setSelected(layer);
+        setEditorDrawerOpen(true);
+      });
+      drawnItems.addLayer(layer);
+      scheduleLabelDeclutter();
+    }
+
+    function downloadGeoJSON(filename, gj) {
+      const blob = new Blob([JSON.stringify(gj, null, 2)], { type: "application/geo+json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    async function writeGeoJSONToHandle(handle, gj) {
+      const writable = await handle.createWritable();
+      await writable.write(JSON.stringify(gj, null, 2));
+      await writable.close();
+    }
+
+    function loadAutosaveSnapshot() {
+      try {
+        const raw = localStorage.getItem(AUTOSAVE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (parsed?.data?.type === "FeatureCollection") return parsed;
+      } catch {}
+      return null;
+    }
+
+    function loadGeoJSON(gj) {
+      drawnItems.clearLayers();
+      setSelected(null);
+      state.nextAreaIdNumber = 1;
+      state.lastAutosaveAt = null;
+      state.lastExportAt = null;
+      let missingIdCount = 0;
+      for (const f of gj?.features || []) {
+        const t = f?.geometry?.type;
+        if ((t === "Polygon" || t === "MultiPolygon") && !areaIdValue(f?.properties)) {
+          missingIdCount += 1;
+        }
+      }
+
+      L.geoJSON(gj, {
+        style: (feature) => styleForFeature(feature),
+        onEachFeature: (_feature, lyr) => bindLayer(lyr),
+        filter: (feature) => {
+          const t = feature?.geometry?.type;
+          return t === "Polygon" || t === "MultiPolygon";
+        }
+      });
+
+      if (drawnItems.getLayers().length) {
+        map.fitBounds(drawnItems.getBounds(), { padding: [20, 20] });
+      } else {
+        map.setView(DEFAULT_VIEW, DEFAULT_ZOOM);
+      }
+
+      recomputeNextAreaIdNumber();
+      refreshList();
+      markCleanFromLoad();
+      if (missingIdCount > 0) {
+        markDirty();
+        setStatus(`Loaded data and backfilled ${missingIdCount} missing area_id value(s).`, true);
+      }
+    }
+
+    function exportGeoJSON() {
+      const features = [];
+      drawnItems.eachLayer((layer) => {
+        const gj = layer.toGeoJSON();
+        const t = gj?.geometry?.type;
+        if (t !== "Polygon" && t !== "MultiPolygon") return;
+
+        const existing = layer.feature?.properties || {};
+        const exported = gj.properties || {};
+        gj.properties = { ...existing, ...exported };
+        features.push(gj);
+      });
+      return { type: "FeatureCollection", features };
+    }
+
+    async function tryLoadDefaultGeoJSON() {
+      if (location.protocol === "file:") {
+        setStatus("file:// mode: auto-load prevented by browser. Use Open GeoJSON… or run a static server.", true);
+        return false;
+      }
+
+      try {
+        const filename = "areas.geojson";
+        const res = await fetch(`./${filename}`, { cache: "no-store" });
+        if (!res.ok) return false;
+        const gj = await res.json();
+        if (gj?.type !== "FeatureCollection") return false;
+        loadGeoJSON(gj);
+        state.currentGeoJSONName = filename;
+        state.exportFileHandle = null;
+        setStatus(`Loaded ./${filename}`);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
+    function norm(s) {
+      return (s || "")
+        .toString()
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+    }
+
+    function refreshList() {
+      const q = norm(els.search.value);
+      const rows = [];
+      let selectedRowEl = null;
+
+      drawnItems.eachLayer((layer) => {
+        const p = layer.feature?.properties || {};
+        rows.push({ layer, p });
+      });
+
+      rows.sort((a, b) => areaIdValue(a.p).localeCompare(areaIdValue(b.p)));
+
+      els.items.innerHTML = "";
+      for (const { layer, p } of rows) {
+        const searchParts = state.showAdvanced
+          ? [areaIdValue(p), p.name, contactValue(p), p.status, p.notes]
+          : [p.name, contactValue(p), p.status, p.notes];
+        const hay = norm(searchParts.join(" "));
+        if (q && !hay.includes(q)) continue;
+        const palette = paletteForStatus(p.status);
+        const pillStyle = `border-color:${palette.color};color:${palette.color};background:${hexToRgba(palette.fillColor, 0.14)};`;
+        const primary = state.showAdvanced
+          ? escapeHtml(areaIdValue(p) || "(no id)")
+          : escapeHtml(p.name || "(unnamed)");
+        const secondary = state.showAdvanced
+          ? escapeHtml(p.name || "")
+          : escapeHtml(contactValue(p));
+        const tertiary = state.showAdvanced
+          ? escapeHtml(contactValue(p))
+          : "";
+
+        const div = document.createElement("div");
+        div.className = `item ${state.selectedLayer === layer ? "selected" : ""}`;
+        if (state.selectedLayer === layer) selectedRowEl = div;
+        div.innerHTML = `
+          <b>${primary}</b>
+          <div>${secondary}</div>
+          <div class="pill" style="${pillStyle}">${escapeHtml(p.status || "")}</div>
+          ${tertiary ? `<div class="muted">${tertiary}</div>` : ""}
+        `;
+        div.addEventListener("click", () => {
+          setSelected(layer);
+          zoomToAll();
+        });
+        div.addEventListener("dblclick", () => {
+          setSelected(layer);
+          setEditorDrawerOpen(true);
+        });
+        els.items.appendChild(div);
+      }
+      if (selectedRowEl) {
+        selectedRowEl.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+      }[c]));
+    }
+
+    els.btnZoom.addEventListener("click", zoomToSelected);
+    els.btnEditSelected.addEventListener("click", () => {
+      if (!state.selectedLayer) return;
+      setEditorDrawerOpen(true);
+    });
+    els.btnCloseEditor.addEventListener("click", () => setEditorDrawerOpen(false));
+    els.editorBackdrop.addEventListener("click", () => {
+      setEditorDrawerOpen(false);
+    });
+    els.statusHintShortcuts.addEventListener("click", () => setShortcutsModalOpen(true));
+    els.statusHintShortcuts.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        setShortcutsModalOpen(true);
+      }
+    });
+    els.btnCloseShortcuts.addEventListener("click", () => setShortcutsModalOpen(false));
+    els.shortcutsModal.addEventListener("click", (e) => {
+      if (e.target === els.shortcutsModal) setShortcutsModalOpen(false);
+    });
+    els.toggleAdvanced.addEventListener("change", () => setAdvancedMode(els.toggleAdvanced.checked));
+    els.toggleOtherLabels.addEventListener("change", () => {
+      state.showOtherLabels = els.toggleOtherLabels.checked;
+      refreshAllLayerLabels();
+    });
+    els.badgeExport.title = "Click to export";
+
+    const autoApplyFields = [
+      els.f_area_id,
+      els.f_name,
+      els.f_contact,
+      els.f_status,
+      els.f_notes
+    ];
+    for (const field of autoApplyFields) {
+      const evt = field.tagName === "SELECT" ? "change" : "input";
+      field.addEventListener(evt, () => {
+        if (!state.selectedLayer) return;
+        applyToSelected();
+      });
+    }
+
+    function focusField(el) {
+      if (!el) return;
+      el.focus();
+      if (typeof el.select === "function" && el.tagName === "INPUT") el.select();
+    }
+
+    function onEnterBlurField(e) {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      if (!state.selectedLayer) return;
+      if (typeof e.currentTarget?.blur === "function") e.currentTarget.blur();
+    }
+
+    els.f_area_id.addEventListener("keydown", onEnterBlurField);
+    els.f_name.addEventListener("keydown", onEnterBlurField);
+    els.f_contact.addEventListener("keydown", onEnterBlurField);
+    els.f_status.addEventListener("keydown", onEnterBlurField);
+
+    map.on(L.Draw.Event.CREATED, (e) => {
+      const layer = e.layer;
+      bindLayer(layer);
+      setSelected(layer);
+      refreshList();
+      markDirty();
+      scheduleLabelDeclutter();
+    });
+
+    map.on(L.Draw.Event.EDITED, () => {
+      drawnItems.eachLayer((layer) => {
+        updateLayerLabel(layer);
+      });
+      refreshList();
+      markDirty();
+      scheduleLabelDeclutter();
+    });
+
+    map.on(L.Draw.Event.DELETED, () => {
+      if (state.selectedLayer && !drawnItems.hasLayer(state.selectedLayer)) setSelected(null);
+      refreshList();
+      markDirty();
+      scheduleLabelDeclutter();
+    });
+    map.on("click", (e) => {
+      const target = e?.originalEvent?.target;
+      if (target && typeof target.closest === "function" && target.closest(".leaflet-interactive")) return;
+      if (state.selectedLayer) setSelected(null);
+    });
+
+    els.btnOpen.addEventListener("click", () => els.fileInput.click());
+    els.fileInput.addEventListener("change", async () => {
+      const file = els.fileInput.files?.[0];
+      if (!file) return;
+      const text = await file.text();
+      let gj;
+      try {
+        gj = JSON.parse(text);
+      } catch {
+        alert("Not valid JSON.");
+        return;
+      }
+
+      loadGeoJSON(gj);
+      state.currentGeoJSONName = file.name || "areas.geojson";
+      state.exportFileHandle = null;
+      setStatus(`Loaded ${state.currentGeoJSONName}`);
+      els.fileInput.value = "";
+    });
+
+    async function runExport() {
+      const gj = exportGeoJSON();
+      try {
+        if (window.showSaveFilePicker) {
+          if (!state.exportFileHandle) {
+            state.exportFileHandle = await window.showSaveFilePicker({
+              suggestedName: state.currentGeoJSONName || "areas.geojson",
+              types: [{
+                description: "GeoJSON",
+                accept: { "application/geo+json": [".geojson", ".json"] }
+              }]
+            });
+            if (state.exportFileHandle?.name) {
+              state.currentGeoJSONName = state.exportFileHandle.name;
+            }
+          }
+
+          await writeGeoJSONToHandle(state.exportFileHandle, gj);
+          state.lastExportAt = new Date().toISOString();
+          state.dirtySinceExport = false;
+          saveAutosaveSnapshot(gj, { dirtySinceExport: false });
+          refreshSaveState();
+          setStatus(`Exported and overwrote ${state.currentGeoJSONName}.`);
+          return;
+        }
+      } catch (err) {
+        if (err?.name === "AbortError") {
+          setStatus("Export canceled.");
+          refreshSaveState();
+          return;
+        }
+        state.exportFileHandle = null;
+        setStatus("Direct overwrite failed, downloaded file instead.", true);
+      }
+
+      downloadGeoJSON(state.currentGeoJSONName || "areas.geojson", gj);
+      state.lastExportAt = new Date().toISOString();
+      state.dirtySinceExport = false;
+      saveAutosaveSnapshot(gj, { dirtySinceExport: false });
+      refreshSaveState();
+      setStatus("Exported GeoJSON (download).");
+    }
+
+    els.btnExport.addEventListener("click", runExport);
+    els.badgeExport.addEventListener("click", runExport);
+
+    els.btnNew.addEventListener("click", () => {
+      if (!confirm("Clear everything and start a new empty map?")) return;
+      drawnItems.clearLayers();
+      state.nextAreaIdNumber = 1;
+      setSelected(null);
+      refreshList();
+      markDirty();
+      setStatus("Started new empty map.");
+    });
+
+    els.search.addEventListener("input", refreshList);
+    document.addEventListener("keydown", (e) => {
+      const target = e.target;
+      const tag = target?.tagName;
+      const isTypingTarget =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        target?.isContentEditable;
+      if (isTypingTarget) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const key = (e.key || "").toLowerCase();
+
+      if (e.key === "?") {
+        e.preventDefault();
+        const currentlyOpen = els.shortcutsModal.classList.contains("open");
+        setShortcutsModalOpen(!currentlyOpen);
+        return;
+      }
+      if (e.key === "Escape") {
+        if (els.shortcutsModal.classList.contains("open")) {
+          setShortcutsModalOpen(false);
+          return;
+        }
+        if (state.editorDrawerOpen) {
+          setEditorDrawerOpen(false);
+          return;
+        }
+        if (state.selectedLayer) setSelected(null);
+        return;
+      }
+      if (els.shortcutsModal.classList.contains("open")) return;
+      if (e.key === "Enter" && state.selectedLayer && !state.editorDrawerOpen) {
+        setEditorDrawerOpen(true);
+        return;
+      }
+      if (key === "a") {
+        zoomToAll();
+        return;
+      }
+      if (key === "s") {
+        zoomToSelected();
+        return;
+      }
+      if (key === "b") {
+        const isCollapsed = document.body.classList.contains("sidebarCollapsed");
+        setSidebarCollapsed(!isCollapsed);
+        return;
+      }
+      if (key === "o") {
+        els.fileInput.click();
+        return;
+      }
+      if (key === "e") {
+        void runExport();
+        return;
+      }
+      if (e.key === "/") {
+        e.preventDefault();
+        focusField(els.search);
+        return;
+      }
+      if (key === "d") {
+        new L.Draw.Polygon(map, drawControl.options.draw.polygon).enable();
+        return;
+      }
+      if (key === "i") {
+        els.toggleAdvanced.checked = !els.toggleAdvanced.checked;
+        setAdvancedMode(els.toggleAdvanced.checked);
+        return;
+      }
+      if (key === "l") {
+        els.toggleOtherLabels.checked = !els.toggleOtherLabels.checked;
+        state.showOtherLabels = els.toggleOtherLabels.checked;
+        refreshAllLayerLabels();
+      }
+    });
+    setSelected(null);
+    setAdvancedMode(false);
+    refreshSaveState();
+    syncFooterHeight();
+    window.addEventListener("resize", syncFooterHeight);
+    if (typeof ResizeObserver !== "undefined") {
+      const footerObserver = new ResizeObserver(() => syncFooterHeight());
+      footerObserver.observe(els.statusWrap);
+    }
+    map.on("zoomend", refreshAllLayerLabels);
+    map.on("moveend", scheduleLabelDeclutter);
+
+    setOnlineTiles();
+
+    function initPanelResize() {
+      if (!panelResizer) return;
+      const minW = 280;
+      const minMapW = 320;
+      let dragging = false;
+
+      function widthFromPointer(clientX) {
+        const appRect = document.getElementById("app").getBoundingClientRect();
+        const next = clientX - appRect.left;
+        const maxW = Math.max(minW, Math.round(appRect.width - minMapW));
+        return Math.max(minW, Math.min(maxW, Math.round(next)));
+      }
+
+      function applyWidth(nextWidth) {
+        document.documentElement.style.setProperty("--panel-w", `${nextWidth}px`);
+      }
+
+      function restoreWidth() {
+        try {
+          const raw = localStorage.getItem(PANEL_WIDTH_KEY);
+          const parsed = Number.parseInt(String(raw || ""), 10);
+          if (!Number.isFinite(parsed)) return;
+          const appRect = document.getElementById("app").getBoundingClientRect();
+          const maxW = Math.max(minW, Math.round(appRect.width - minMapW));
+          applyWidth(Math.max(minW, Math.min(maxW, parsed)));
+          map.invalidateSize({ pan: false });
+        } catch {}
+      }
+
+      panelResizer.addEventListener("pointerdown", (e) => {
+        dragging = true;
+        panelResizer.setPointerCapture(e.pointerId);
+        document.body.classList.add("resizing");
+        applyWidth(widthFromPointer(e.clientX));
+      });
+
+      panelResizer.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        applyWidth(widthFromPointer(e.clientX));
+        map.invalidateSize({ pan: false });
+      });
+
+      function stopDrag() {
+        if (!dragging) return;
+        dragging = false;
+        document.body.classList.remove("resizing");
+        const computed = getComputedStyle(document.documentElement).getPropertyValue("--panel-w").trim();
+        try { localStorage.setItem(PANEL_WIDTH_KEY, computed); } catch {}
+        map.invalidateSize({ pan: false });
+      }
+
+      panelResizer.addEventListener("pointerup", stopDrag);
+      panelResizer.addEventListener("pointercancel", stopDrag);
+      panelResizer.addEventListener("lostpointercapture", stopDrag);
+      restoreWidth();
+    }
+
+    initPanelResize();
+    (async () => {
+      const loadedDefault = await tryLoadDefaultGeoJSON();
+      if (loadedDefault) return;
+
+      const autosave = loadAutosaveSnapshot();
+      if (autosave?.data?.type === "FeatureCollection") {
+        loadGeoJSON(autosave.data);
+        state.lastAutosaveAt = autosave.savedAt || null;
+        state.dirtySinceAutosave = false;
+        state.dirtySinceExport = autosave.dirtySinceExport ?? true;
+        refreshSaveState();
+        if (state.dirtySinceExport) {
+          setStatus(`Loaded browser autosave from ${autosave.savedAt}. Export still pending.`, true);
+        } else {
+          setStatus(`Loaded browser autosave from ${autosave.savedAt}.`, true);
+        }
+      }
+    })();
+  </script>
+</body>
+</html>
