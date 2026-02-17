@@ -2005,11 +2005,17 @@
       setSelected(layer);
       setSuggestModalOpen(true, "Trying Nominatim to suggest a name...");
       setStatus("Trying Nominatim to suggest an area name...");
-      autoSuggestNameForNewLayer(layer).catch((err) => {
-        setSuggestModalOpen(false);
-        const msg = String(err?.message || "Unexpected error");
-        setStatus(`Name suggestion failed: ${msg}`, true);
-      });
+      autoSuggestNameForNewLayer(layer)
+        .catch((err) => {
+          setSuggestModalOpen(false);
+          const msg = String(err?.message || "Unexpected error");
+          setStatus(`Name suggestion failed: ${msg}`, true);
+        })
+        .finally(() => {
+          if (state.selectedLayer === layer) {
+            setEditorDrawerOpen(true);
+          }
+        });
       refreshList();
       markDirty();
       scheduleLabelDeclutter();
