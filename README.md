@@ -3,6 +3,7 @@
 A single-file, browser-based GeoJSON editor for area polygons.
 
 It is designed for fast assignment workflows:
+
 - draw and edit areas on a map
 - update area metadata in the left panel
 - autosave in browser storage
@@ -14,6 +15,16 @@ It is designed for fast assignment workflows:
 - `areas.geojson`: optional default dataset loaded on startup
 
 No build step or package install is required.
+
+## Optional Lint & Format Checks
+
+If you want consistent style checks:
+
+```bash
+npm install
+npm run lint
+npm run format:check
+```
 
 ## Quick Start
 
@@ -33,16 +44,19 @@ open http://localhost:8000/editor.html
 ## Core Workflow
 
 1. Load data
+
 - Use `Import GeoJSON…` to load a `.geojson` or `.json` file.
 - If served over `http://`, the app also tries to auto-load `./areas.geojson`.
 
 2. Edit areas
+
 - Draw polygons with Leaflet Draw controls.
 - Click an area to edit `name`, `contact`, `status`, and `notes`.
 - `area_id` is shown in `Advanced` mode.
 - Missing `area_id` values are auto-generated as `A-0001`, `A-0002`, etc.
 
 3. Save/export
+
 - Autosave writes to browser `localStorage` only (not disk).
 - Use `Export GeoJSON` to write/download a file.
 - On supported browsers, export can overwrite the same file via File System Access API.
