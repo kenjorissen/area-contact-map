@@ -1461,6 +1461,24 @@
     L.drawLocal.edit.toolbar.buttons.removeDisabled = "No areas to delete";
     L.drawLocal.edit.toolbar.actions.save.title = "Save area edits";
     L.drawLocal.edit.toolbar.actions.cancel.title = "Cancel area edits";
+    L.drawLocal.edit.toolbar.actions.clearAll = {
+      title: "Delete all areas",
+      text: "Clear all"
+    };
+
+    if (L.EditToolbar?.Delete?.prototype?.removeAllLayers) {
+      const originalRemoveAllLayers = L.EditToolbar.Delete.prototype.removeAllLayers;
+      L.EditToolbar.Delete.include({
+        removeAllLayers() {
+          const count = this._deletableLayers?.getLayers?.().length || 0;
+          if (count > 0) {
+            const ok = confirm(`Delete all ${count} area(s)? This cannot be undone.`);
+            if (!ok) return;
+          }
+          return originalRemoveAllLayers.call(this);
+        }
+      });
+    }
 
     const drawControl = new L.Control.Draw({
       position: "topleft",
