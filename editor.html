@@ -2078,6 +2078,9 @@
       loadGeoJSON(gj);
       state.currentGeoJSONName = file.name || "areas.geojson";
       state.exportFileHandle = null;
+      saveAutosaveSnapshot(gj, { dirtySinceExport: false });
+      state.dirtySinceExport = false;
+      refreshSaveState();
       setStatus(`Loaded ${state.currentGeoJSONName}`);
       els.fileInput.value = "";
     });
@@ -2290,9 +2293,6 @@
 
     initPanelResize();
     (async () => {
-      const loadedDefault = await tryLoadDefaultGeoJSON();
-      if (loadedDefault) return;
-
       const autosave = loadAutosaveSnapshot();
       if (autosave?.data?.type === "FeatureCollection") {
         loadGeoJSON(autosave.data);
@@ -2305,7 +2305,10 @@
         } else {
           setStatus(`Loaded browser autosave from ${autosave.savedAt}.`, true);
         }
+        return;
       }
+
+      await tryLoadDefaultGeoJSON();
     })();
   </script>
 </body>
