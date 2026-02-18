@@ -2281,6 +2281,9 @@
         }
         applyLayerStyle(layer);
         updateLayerLabel(layer);
+        layer.on("pm:update", () => {
+          handleGeometryCommit(layer);
+        });
         layer.on("click", () => {
           setSelected(layer);
         });
@@ -2571,13 +2574,13 @@
         scheduleLabelDeclutter();
       });
 
-      map.on("pm:update", ({ layer }) => {
+      function handleGeometryCommit(layer) {
         if (!layer || !drawnItems.hasLayer(layer)) return;
         updateLayerLabel(layer);
         refreshList();
         markDirty();
         scheduleLabelDeclutter();
-      });
+      }
 
       map.on("pm:remove", async ({ layer }) => {
         if (!layer) return;
