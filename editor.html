@@ -1994,6 +1994,9 @@
         const next = !!open && !!state.selectedLayer;
         const wasOpen = state.ui.editorDrawerOpen;
         if (next && !wasOpen) rememberFocusFor("editor");
+        if (!next && wasOpen) {
+          restoreRememberedFocusFor("editor");
+        }
         state.ui.editorDrawerOpen = next;
         els.selectedEditor.classList.toggle("drawerOpen", next);
         els.editorBackdrop.classList.toggle("open", next);
@@ -2005,8 +2008,6 @@
             const target = focusables[0] || els.selectedEditor;
             if (typeof target.focus === "function") target.focus();
           });
-        } else if (wasOpen) {
-          restoreRememberedFocusFor("editor");
         }
         refreshSelectionActions();
       }
@@ -2031,6 +2032,9 @@
         const isOpen = !!open;
         const wasOpen = state.ui.shortcutsOpen;
         if (isOpen && !wasOpen) rememberFocusFor("shortcuts");
+        if (!isOpen && wasOpen) {
+          restoreRememberedFocusFor("shortcuts");
+        }
         state.ui.shortcutsOpen = isOpen;
         els.shortcutsModal.classList.toggle("open", state.ui.shortcutsOpen);
         els.shortcutsModal.setAttribute("aria-hidden", state.ui.shortcutsOpen ? "false" : "true");
@@ -2040,8 +2044,6 @@
             const target = focusables[0] || els.shortcutsModal;
             if (typeof target.focus === "function") target.focus();
           });
-        } else if (wasOpen) {
-          restoreRememberedFocusFor("shortcuts");
         }
       }
 
@@ -2071,9 +2073,6 @@
       }
 
       function applySidebarLayoutSideEffects() {
-        if (els.panel) {
-          els.panel.setAttribute("aria-hidden", isSidebarOpen() ? "false" : "true");
-        }
         if (els.mobilePanelBackdrop) {
           els.mobilePanelBackdrop.setAttribute(
             "aria-hidden",
