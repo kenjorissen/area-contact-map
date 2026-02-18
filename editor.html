@@ -661,9 +661,17 @@
       <div id="panelResizer" aria-hidden="true"></div>
       <div id="map"></div>
     </div>
-    <div id="selectedEditor" class="selectedEditor">
+    <div
+      id="selectedEditor"
+      class="selectedEditor"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="selectedEditorTitle"
+      aria-hidden="true"
+      tabindex="-1"
+    >
       <div class="drawerHead">
-        <div class="sectionTitle">Selected area</div>
+        <div id="selectedEditorTitle" class="sectionTitle">Selected area</div>
       </div>
       <div id="selectionFields" class="hidden">
         <div class="row hidden" id="rowAreaId">
@@ -749,6 +757,8 @@
       role="dialog"
       aria-modal="true"
       aria-labelledby="shortcutsTitle"
+      aria-hidden="true"
+      tabindex="-1"
     >
       <div class="shortcutsCard">
         <div class="shortcutsHead">
@@ -864,6 +874,10 @@
           labelDeclutterFrame: null,
           geocodeQueue: Promise.resolve(),
           lastGeocodeAt: 0,
+          restoreFocusEl: {
+            editor: null,
+            shortcuts: null,
+          },
         },
       };
       let sidebarToggleControlEl = null;
@@ -877,6 +891,7 @@
         btnExport: document.getElementById("btnExport"),
         btnNew: document.getElementById("btnNew"),
         btnCloseMobilePanel: document.getElementById("btnCloseMobilePanel"),
+        panel: document.getElementById("panel"),
         fileInput: document.getElementById("fileInput"),
         statusWrap: document.querySelector(".statusWrap"),
         status: document.getElementById("status"),
@@ -1930,11 +1945,69 @@
         map.fitBounds(state.selectedLayer.getBounds(), { padding: [20, 20] });
       }
 
+      function rememberFocusFor(key) {
+        const active = document.activeElement;
+        state.runtime.restoreFocusEl[key] = active instanceof HTMLElement ? active : null;
+      }
+
+      function restoreRememberedFocusFor(key) {
+        const el = state.runtime.restoreFocusEl[key];
+        if (el && el.isConnected && typeof el.focus === "function") {
+          el.focus();
+        }
+        state.runtime.restoreFocusEl[key] = null;
+      }
+
+      function dialogFocusable(container) {
+        if (!container) return [];
+        const selector =
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+        return Array.from(container.querySelectorAll(selector)).filter(
+          (el) => !el.hasAttribute("hidden") && !el.getAttribute("aria-hidden"),
+        );
+      }
+
+      function trapDialogTab(e, container) {
+        if (e.key !== "Tab") return false;
+        const focusables = dialogFocusable(container);
+        if (!focusables.length) return false;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement;
+        if (e.shiftKey) {
+          if (active === first || !container.contains(active)) {
+            e.preventDefault();
+            last.focus();
+            return true;
+          }
+          return false;
+        }
+        if (active === last || !container.contains(active)) {
+          e.preventDefault();
+          first.focus();
+          return true;
+        }
+        return false;
+      }
+
       function setEditorDrawerOpen(open) {
         const next = !!open && !!state.selectedLayer;
+        const wasOpen = state.ui.editorDrawerOpen;
+        if (next && !wasOpen) rememberFocusFor("editor");
         state.ui.editorDrawerOpen = next;
         els.selectedEditor.classList.toggle("drawerOpen", next);
         els.editorBackdrop.classList.toggle("open", next);
+        els.selectedEditor.setAttribute("aria-hidden", next ? "false" : "true");
+        els.editorBackdrop.setAttribute("aria-hidden", next ? "false" : "true");
+        if (next) {
+          requestAnimationFrame(() => {
+            const focusables = dialogFocusable(els.selectedEditor);
+            const target = focusables[0] || els.selectedEditor;
+            if (typeof target.focus === "function") target.focus();
+          });
+        } else if (wasOpen) {
+          restoreRememberedFocusFor("editor");
+        }
         refreshSelectionActions();
       }
 
@@ -1956,8 +2029,20 @@
 
       function setShortcutsModalOpen(open) {
         const isOpen = !!open;
+        const wasOpen = state.ui.shortcutsOpen;
+        if (isOpen && !wasOpen) rememberFocusFor("shortcuts");
         state.ui.shortcutsOpen = isOpen;
         els.shortcutsModal.classList.toggle("open", state.ui.shortcutsOpen);
+        els.shortcutsModal.setAttribute("aria-hidden", state.ui.shortcutsOpen ? "false" : "true");
+        if (state.ui.shortcutsOpen) {
+          requestAnimationFrame(() => {
+            const focusables = dialogFocusable(els.shortcutsModal);
+            const target = focusables[0] || els.shortcutsModal;
+            if (typeof target.focus === "function") target.focus();
+          });
+        } else if (wasOpen) {
+          restoreRememberedFocusFor("shortcuts");
+        }
       }
 
       function zoomToAll() {
@@ -1979,6 +2064,15 @@
       }
 
       function applySidebarLayoutSideEffects() {
+        if (els.panel) {
+          els.panel.setAttribute("aria-hidden", isSidebarOpen() ? "false" : "true");
+        }
+        if (els.mobilePanelBackdrop) {
+          els.mobilePanelBackdrop.setAttribute(
+            "aria-hidden",
+            isMobileLayout() && isSidebarOpen() ? "false" : "true",
+          );
+        }
         refreshSidebarControlLabel();
         requestAnimationFrame(() => {
           map.invalidateSize({ pan: false });
@@ -2033,6 +2127,7 @@
           sidebarToggleControlEl.textContent = isOpen ? "X" : "☰";
           sidebarToggleControlEl.title = label;
           sidebarToggleControlEl.setAttribute("aria-label", label);
+          sidebarToggleControlEl.setAttribute("aria-expanded", isOpen ? "true" : "false");
           return;
         }
         const isOpen = isSidebarOpen();
@@ -2040,6 +2135,7 @@
         sidebarToggleControlEl.textContent = isOpen ? "<<" : ">>";
         sidebarToggleControlEl.title = label;
         sidebarToggleControlEl.setAttribute("aria-label", label);
+        sidebarToggleControlEl.setAttribute("aria-expanded", isOpen ? "true" : "false");
       }
 
       function addSidebarToggleControl() {
@@ -2049,6 +2145,7 @@
             const link = L.DomUtil.create("a", "", container);
             link.href = "#";
             link.setAttribute("role", "button");
+            link.setAttribute("aria-controls", "panel");
             link.style.width = "auto";
             link.style.minWidth = "30px";
             link.style.padding = "0 8px";
@@ -2521,6 +2618,8 @@
 
       els.search.addEventListener("input", refreshList);
       document.addEventListener("keydown", (e) => {
+        if (state.ui.shortcutsOpen && trapDialogTab(e, els.shortcutsModal)) return;
+        if (state.ui.editorDrawerOpen && trapDialogTab(e, els.selectedEditor)) return;
         const target = e.target;
         const tag = target?.tagName;
         const isTypingTarget =
