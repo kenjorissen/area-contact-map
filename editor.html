@@ -820,6 +820,21 @@
     <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 
     <script>
+      /*
+       * Architecture notes (single-file app):
+       * - state.* holds durable app data (selected layer, dirty flags, file/export metadata).
+       * - state.ui holds UI intent only (sidebar/editor/shortcuts open, label/advanced toggles).
+       * - state.runtime holds ephemeral process values (timers, queues, focus-restore refs).
+       *
+       * Surface model:
+       * - Surfaces are "sidebar", "editor", and "shortcuts".
+       * - Use isSurfaceOpen/setSurfaceOpen/toggleSurface/closeTopSurface for open-close logic.
+       * - Escape closes top-most surface by policy: shortcuts -> editor -> sidebar (mobile).
+       *
+       * Render/event flow:
+       * - Event handlers mutate state first, then call render/sync helpers.
+       * - DOM classes/ARIA are outputs of state, not the source of truth.
+       */
       const DEFAULT_VIEW = [44.98, -93.265];
       const DEFAULT_ZOOM = 13;
       const ONLINE_TILE_TEMPLATE = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
