@@ -842,6 +842,14 @@
         blank: { color: "#1d4ed8", fillColor: "#3b82f6" },
       };
 
+      // Compatibility shim for Leaflet Draw 1.0.4 on modern Leaflet:
+      // Draw's edit path still references deprecated L.LineUtil._flat.
+      // Alias it to L.LineUtil.isFlat so edit mode works without console noise.
+      // Safe because both are the same flat-coordinates check.
+      if (L?.LineUtil?.isFlat && L?.LineUtil?._flat !== L.LineUtil.isFlat) {
+        L.LineUtil._flat = L.LineUtil.isFlat;
+      }
+
       const map = L.map("map", { preferCanvas: true });
       map.setView(DEFAULT_VIEW, DEFAULT_ZOOM);
       const panelResizer = document.getElementById("panelResizer");
