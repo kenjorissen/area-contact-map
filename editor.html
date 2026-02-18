@@ -2643,52 +2643,6 @@
         );
       }
 
-      els.btnEditSelected.addEventListener("click", () => {
-        if (!state.selectedLayer) return;
-        setEditorDrawerOpen(true);
-      });
-      els.btnMobileEditSelected.addEventListener("click", () => {
-        if (!state.selectedLayer) return;
-        setEditorDrawerOpen(true);
-      });
-      els.btnCloseEditor.addEventListener("click", closeEditorSafely);
-      els.editorBackdrop.addEventListener("click", () => {
-        closeEditorSafely();
-      });
-      els.statusHintShortcuts.addEventListener("click", () => setSurfaceOpen("shortcuts", true));
-      els.statusHintShortcuts.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          setSurfaceOpen("shortcuts", true);
-        }
-      });
-      els.btnCloseShortcuts.addEventListener("click", () => setSurfaceOpen("shortcuts", false));
-      els.shortcutsModal.addEventListener("click", (e) => {
-        if (e.target === els.shortcutsModal) setSurfaceOpen("shortcuts", false);
-      });
-      els.btnDeleteConfirmCancel.addEventListener("click", () => resolveConfirmModal(false));
-      els.btnDeleteConfirmProceed.addEventListener("click", () => resolveConfirmModal(true));
-      els.deleteConfirmModal.addEventListener("click", (e) => {
-        if (e.target === els.deleteConfirmModal) resolveConfirmModal(false);
-      });
-      els.toggleAdvanced.addEventListener("change", () =>
-        setAdvancedMode(els.toggleAdvanced.checked),
-      );
-      els.toggleOtherLabels.addEventListener("change", () => {
-        state.ui.showOtherLabels = els.toggleOtherLabels.checked;
-        refreshAllLayerLabels();
-      });
-      els.badgeExport.title = "Click to export";
-
-      const autoApplyFields = [els.f_area_id, els.f_name, els.f_contact, els.f_status, els.f_notes];
-      for (const field of autoApplyFields) {
-        const evt = field.tagName === "SELECT" ? "change" : "input";
-        field.addEventListener(evt, () => {
-          if (!state.selectedLayer) return;
-          applyToSelected();
-        });
-      }
-
       function focusField(el) {
         if (!el) return;
         el.focus();
@@ -2702,33 +2656,6 @@
         if (typeof e.currentTarget?.blur === "function") e.currentTarget.blur();
       }
 
-      els.f_area_id.addEventListener("keydown", onEnterBlurField);
-      els.f_name.addEventListener("keydown", onEnterBlurField);
-      els.f_contact.addEventListener("keydown", onEnterBlurField);
-      els.f_status.addEventListener("keydown", onEnterBlurField);
-
-      map.on("pm:create", (e) => {
-        const layer = e.layer;
-        bindLayer(layer);
-        setSelected(layer);
-        setSuggestModalOpen(true, "Trying Nominatim to suggest a name...");
-        setStatus("Trying Nominatim to suggest an area name...");
-        autoSuggestNameForNewLayer(layer)
-          .catch((err) => {
-            setSuggestModalOpen(false);
-            const msg = String(err?.message || "Unexpected error");
-            setStatus(`Name suggestion failed: ${msg}`, true);
-          })
-          .finally(() => {
-            if (state.selectedLayer === layer) {
-              setEditorDrawerOpen(true);
-            }
-          });
-        refreshList();
-        markDirty();
-        scheduleLabelDeclutter();
-      });
-
       function handleGeometryCommit(layer) {
         if (!layer || !drawnItems.hasLayer(layer)) return;
         updateLayerLabel(layer);
@@ -2736,84 +2663,6 @@
         markDirty();
         scheduleLabelDeclutter();
       }
-
-      map.on("pm:remove", async ({ layer }) => {
-        if (!layer) return;
-        if (state.runtime.removeConfirmInProgress) return;
-        state.runtime.removeConfirmInProgress = true;
-        try {
-          if (!drawnItems.hasLayer(layer)) drawnItems.addLayer(layer);
-          setSelected(layer);
-          refreshList();
-
-          const wasSelected = state.selectedLayer === layer;
-          const ok = await confirmDeleteLayer(layer);
-          if (!ok) {
-            exitRemovalMode();
-            if (!map.hasLayer(layer)) layer.addTo(map);
-            if (!drawnItems.hasLayer(layer)) drawnItems.addLayer(layer);
-            applyLayerStyle(layer);
-            updateLayerLabel(layer);
-            if (wasSelected) setSelected(layer);
-            refreshList();
-            scheduleLabelDeclutter();
-            setStatus("Delete canceled. Removal mode exited.");
-            return;
-          }
-
-          // Keep feature-group state consistent for list/export paths.
-          if (map.hasLayer(layer)) map.removeLayer(layer);
-          if (drawnItems.hasLayer(layer)) drawnItems.removeLayer(layer);
-          if (state.selectedLayer && !drawnItems.hasLayer(state.selectedLayer)) setSelected(null);
-          refreshList();
-          markDirty();
-          scheduleLabelDeclutter();
-          setStatus("Area deleted.");
-        } finally {
-          state.runtime.removeConfirmInProgress = false;
-        }
-      });
-      map.on("click", (e) => {
-        const target = e?.originalEvent?.target;
-        if (
-          target &&
-          typeof target.closest === "function" &&
-          target.closest(".leaflet-interactive")
-        )
-          return;
-        if (isMobileLayout() && isSurfaceOpen("sidebar")) {
-          setSurfaceOpen("sidebar", false);
-        }
-        if (state.selectedLayer) setSelected(null);
-      });
-
-      els.btnOpen.addEventListener("click", () => els.fileInput.click());
-      els.fileInput.addEventListener("change", async () => {
-        const file = els.fileInput.files?.[0];
-        if (!file) return;
-        const text = await file.text();
-        let gj;
-        try {
-          gj = JSON.parse(text);
-        } catch {
-          await openAlertModal({
-            title: "Import failed",
-            message: "Not valid JSON.",
-            okText: "OK",
-          });
-          setStatus("Import failed: not valid JSON.", true);
-          return;
-        }
-
-        loadGeoJSON(gj);
-        state.currentGeoJSONName = file.name || DEFAULT_GEOJSON_FILENAME;
-        state.exportFileHandle = null;
-        saveAutosaveSnapshot(gj, { dirtySinceExport: false });
-        state.dirtySinceExport = false;
-        refreshSaveState();
-        setStatus(`Loaded ${state.currentGeoJSONName}`);
-        els.fileInput.value = "";
-      });
 
       async function runExport() {
         const gj = exportGeoJSON();
@@ -2878,129 +2727,294 @@
         setStatus("Exported GeoJSON (download).");
       }
 
-      els.btnExport.addEventListener("click", runExport);
-      els.badgeExport.addEventListener("click", runExport);
-      els.btnCloseMobilePanel.addEventListener("click", () => setSurfaceOpen("sidebar", false));
-      els.mobilePanelBackdrop.addEventListener("click", () => setSurfaceOpen("sidebar", false));
-
-      els.btnNew.addEventListener("click", async () => {
-        const ok = await openConfirmModal({
-          title: "Start a new map?",
-          message: "Clear everything and start a new empty map?",
-          confirmText: "Start new map",
-          cancelText: "Cancel",
-          showCancel: true,
+      function bindMapEventHandlers() {
+        map.on("pm:create", (e) => {
+          const layer = e.layer;
+          bindLayer(layer);
+          setSelected(layer);
+          setSuggestModalOpen(true, "Trying Nominatim to suggest a name...");
+          setStatus("Trying Nominatim to suggest an area name...");
+          autoSuggestNameForNewLayer(layer)
+            .catch((err) => {
+              setSuggestModalOpen(false);
+              const msg = String(err?.message || "Unexpected error");
+              setStatus(`Name suggestion failed: ${msg}`, true);
+            })
+            .finally(() => {
+              if (state.selectedLayer === layer) {
+                setEditorDrawerOpen(true);
+              }
+            });
+          refreshList();
+          markDirty();
+          scheduleLabelDeclutter();
         });
-        if (!ok) return;
-        drawnItems.clearLayers();
-        state.nextAreaIdNumber = 1;
-        setSelected(null);
-        refreshList();
-        markDirty();
-        setStatus("Started new empty map.");
-      });
 
-      els.search.addEventListener("input", () => {
-        refreshSearchControls();
-        refreshList();
-      });
-      els.btnClearSearch.addEventListener("click", () => {
-        if (!els.search.value) return;
-        els.search.value = "";
-        refreshSearchControls();
-        refreshList();
-        focusField(els.search);
-      });
-      document.addEventListener("keydown", (e) => {
-        if (isSurfaceOpen("deleteConfirm") && trapDialogTab(e, els.deleteConfirmModal)) return;
-        if (isSurfaceOpen("shortcuts") && trapDialogTab(e, els.shortcutsModal)) return;
-        if (isSurfaceOpen("editor") && trapDialogTab(e, els.selectedEditor)) return;
-        const target = e.target;
-        const tag = target?.tagName;
-        const isTypingTarget =
-          tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable;
-        if (isTypingTarget) return;
-        if (e.metaKey || e.ctrlKey || e.altKey) return;
-        const key = (e.key || "").toLowerCase();
+        map.on("pm:remove", async ({ layer }) => {
+          if (!layer) return;
+          if (state.runtime.removeConfirmInProgress) return;
+          state.runtime.removeConfirmInProgress = true;
+          try {
+            if (!drawnItems.hasLayer(layer)) drawnItems.addLayer(layer);
+            setSelected(layer);
+            refreshList();
 
-        if (e.key === "?") {
-          e.preventDefault();
-          toggleSurface("shortcuts");
-          return;
-        }
-        if (e.key === "Escape") {
-          if (closeTopSurface()) return;
+            const wasSelected = state.selectedLayer === layer;
+            const ok = await confirmDeleteLayer(layer);
+            if (!ok) {
+              exitRemovalMode();
+              if (!map.hasLayer(layer)) layer.addTo(map);
+              if (!drawnItems.hasLayer(layer)) drawnItems.addLayer(layer);
+              applyLayerStyle(layer);
+              updateLayerLabel(layer);
+              if (wasSelected) setSelected(layer);
+              refreshList();
+              scheduleLabelDeclutter();
+              setStatus("Delete canceled. Removal mode exited.");
+              return;
+            }
+
+            // Keep feature-group state consistent for list/export paths.
+            if (map.hasLayer(layer)) map.removeLayer(layer);
+            if (drawnItems.hasLayer(layer)) drawnItems.removeLayer(layer);
+            if (state.selectedLayer && !drawnItems.hasLayer(state.selectedLayer)) setSelected(null);
+            refreshList();
+            markDirty();
+            scheduleLabelDeclutter();
+            setStatus("Area deleted.");
+          } finally {
+            state.runtime.removeConfirmInProgress = false;
+          }
+        });
+
+        map.on("click", (e) => {
+          const target = e?.originalEvent?.target;
+          if (
+            target &&
+            typeof target.closest === "function" &&
+            target.closest(".leaflet-interactive")
+          )
+            return;
+          if (isMobileLayout() && isSurfaceOpen("sidebar")) {
+            setSurfaceOpen("sidebar", false);
+          }
           if (state.selectedLayer) setSelected(null);
-          return;
-        }
-        if (isSurfaceOpen("shortcuts")) return;
-        if (e.key === "Enter" && state.selectedLayer && !isSurfaceOpen("editor")) {
+        });
+
+        map.on("zoomend", refreshAllLayerLabels);
+        map.on("moveend", scheduleLabelDeclutter);
+      }
+
+      function bindUiEventHandlers() {
+        els.btnEditSelected.addEventListener("click", () => {
+          if (!state.selectedLayer) return;
           setEditorDrawerOpen(true);
-          return;
-        }
-        if (key === "a") {
-          zoomToAll();
-          return;
-        }
-        if (key === "s") {
-          zoomToSelected();
-          return;
-        }
-        if (key === "b") {
-          toggleSurface("sidebar");
-          return;
-        }
-        if (key === "o") {
-          els.fileInput.click();
-          return;
-        }
-        if (key === "e") {
-          void runExport();
-          return;
-        }
-        if (e.key === "/") {
-          e.preventDefault();
-          focusField(els.search);
-          return;
-        }
-        if (key === "d") {
-          map.pm.enableDraw("Polygon", { allowSelfIntersection: false });
-          return;
-        }
-        if (key === "i") {
-          els.toggleAdvanced.checked = !els.toggleAdvanced.checked;
-          setAdvancedMode(els.toggleAdvanced.checked);
-          return;
-        }
-        if (key === "l") {
-          els.toggleOtherLabels.checked = !els.toggleOtherLabels.checked;
+        });
+        els.btnMobileEditSelected.addEventListener("click", () => {
+          if (!state.selectedLayer) return;
+          setEditorDrawerOpen(true);
+        });
+        els.btnCloseEditor.addEventListener("click", closeEditorSafely);
+        els.editorBackdrop.addEventListener("click", () => {
+          closeEditorSafely();
+        });
+        els.statusHintShortcuts.addEventListener("click", () => setSurfaceOpen("shortcuts", true));
+        els.statusHintShortcuts.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setSurfaceOpen("shortcuts", true);
+          }
+        });
+        els.btnCloseShortcuts.addEventListener("click", () => setSurfaceOpen("shortcuts", false));
+        els.shortcutsModal.addEventListener("click", (e) => {
+          if (e.target === els.shortcutsModal) setSurfaceOpen("shortcuts", false);
+        });
+        els.btnDeleteConfirmCancel.addEventListener("click", () => resolveConfirmModal(false));
+        els.btnDeleteConfirmProceed.addEventListener("click", () => resolveConfirmModal(true));
+        els.deleteConfirmModal.addEventListener("click", (e) => {
+          if (e.target === els.deleteConfirmModal) resolveConfirmModal(false);
+        });
+        els.toggleAdvanced.addEventListener("change", () =>
+          setAdvancedMode(els.toggleAdvanced.checked),
+        );
+        els.toggleOtherLabels.addEventListener("change", () => {
           state.ui.showOtherLabels = els.toggleOtherLabels.checked;
           refreshAllLayerLabels();
-        }
-      });
-      setSelected(null);
-      setAdvancedMode(false);
-      refreshNameSuggestHelp();
-      refreshSearchControls();
-      refreshExportBehaviorHint();
-      refreshSaveState();
-      syncFooterHeight();
-      window.addEventListener("resize", syncFooterHeight);
-      if (typeof ResizeObserver !== "undefined") {
-        const footerObserver = new ResizeObserver(() => syncFooterHeight());
-        footerObserver.observe(els.statusWrap);
-      }
-      if (typeof mobileScreenQuery.addEventListener === "function") {
-        mobileScreenQuery.addEventListener("change", handleMobileLayoutChange);
-      } else if (typeof mobileScreenQuery.addListener === "function") {
-        mobileScreenQuery.addListener(handleMobileLayoutChange);
-      }
-      handleMobileLayoutChange();
-      map.on("zoomend", refreshAllLayerLabels);
-      map.on("moveend", scheduleLabelDeclutter);
+        });
 
-      setOnlineTiles();
-      setStatus(`Geocoder: ${geocodeProviderLabel()}.`);
+        const autoApplyFields = [
+          els.f_area_id,
+          els.f_name,
+          els.f_contact,
+          els.f_status,
+          els.f_notes,
+        ];
+        for (const field of autoApplyFields) {
+          const evt = field.tagName === "SELECT" ? "change" : "input";
+          field.addEventListener(evt, () => {
+            if (!state.selectedLayer) return;
+            applyToSelected();
+          });
+        }
+
+        els.f_area_id.addEventListener("keydown", onEnterBlurField);
+        els.f_name.addEventListener("keydown", onEnterBlurField);
+        els.f_contact.addEventListener("keydown", onEnterBlurField);
+        els.f_status.addEventListener("keydown", onEnterBlurField);
+
+        els.btnOpen.addEventListener("click", () => els.fileInput.click());
+        els.fileInput.addEventListener("change", async () => {
+          const file = els.fileInput.files?.[0];
+          if (!file) return;
+          const text = await file.text();
+          let gj;
+          try {
+            gj = JSON.parse(text);
+          } catch {
+            await openAlertModal({
+              title: "Import failed",
+              message: "Not valid JSON.",
+              okText: "OK",
+            });
+            setStatus("Import failed: not valid JSON.", true);
+            return;
+          }
+
+          loadGeoJSON(gj);
+          state.currentGeoJSONName = file.name || DEFAULT_GEOJSON_FILENAME;
+          state.exportFileHandle = null;
+          saveAutosaveSnapshot(gj, { dirtySinceExport: false });
+          state.dirtySinceExport = false;
+          refreshSaveState();
+          setStatus(`Loaded ${state.currentGeoJSONName}`);
+          els.fileInput.value = "";
+        });
+
+        els.btnExport.addEventListener("click", runExport);
+        els.badgeExport.addEventListener("click", runExport);
+        els.btnCloseMobilePanel.addEventListener("click", () => setSurfaceOpen("sidebar", false));
+        els.mobilePanelBackdrop.addEventListener("click", () => setSurfaceOpen("sidebar", false));
+
+        els.btnNew.addEventListener("click", async () => {
+          const ok = await openConfirmModal({
+            title: "Start a new map?",
+            message: "Clear everything and start a new empty map?",
+            confirmText: "Start new map",
+            cancelText: "Cancel",
+            showCancel: true,
+          });
+          if (!ok) return;
+          drawnItems.clearLayers();
+          state.nextAreaIdNumber = 1;
+          setSelected(null);
+          refreshList();
+          markDirty();
+          setStatus("Started new empty map.");
+        });
+
+        els.search.addEventListener("input", () => {
+          refreshSearchControls();
+          refreshList();
+        });
+        els.btnClearSearch.addEventListener("click", () => {
+          if (!els.search.value) return;
+          els.search.value = "";
+          refreshSearchControls();
+          refreshList();
+          focusField(els.search);
+        });
+        document.addEventListener("keydown", (e) => {
+          if (isSurfaceOpen("deleteConfirm") && trapDialogTab(e, els.deleteConfirmModal)) return;
+          if (isSurfaceOpen("shortcuts") && trapDialogTab(e, els.shortcutsModal)) return;
+          if (isSurfaceOpen("editor") && trapDialogTab(e, els.selectedEditor)) return;
+          const target = e.target;
+          const tag = target?.tagName;
+          const isTypingTarget =
+            tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable;
+          if (isTypingTarget) return;
+          if (e.metaKey || e.ctrlKey || e.altKey) return;
+          const key = (e.key || "").toLowerCase();
+
+          if (e.key === "?") {
+            e.preventDefault();
+            toggleSurface("shortcuts");
+            return;
+          }
+          if (e.key === "Escape") {
+            if (closeTopSurface()) return;
+            if (state.selectedLayer) setSelected(null);
+            return;
+          }
+          if (isSurfaceOpen("shortcuts")) return;
+          if (e.key === "Enter" && state.selectedLayer && !isSurfaceOpen("editor")) {
+            setEditorDrawerOpen(true);
+            return;
+          }
+          if (key === "a") {
+            zoomToAll();
+            return;
+          }
+          if (key === "s") {
+            zoomToSelected();
+            return;
+          }
+          if (key === "b") {
+            toggleSurface("sidebar");
+            return;
+          }
+          if (key === "o") {
+            els.fileInput.click();
+            return;
+          }
+          if (key === "e") {
+            void runExport();
+            return;
+          }
+          if (e.key === "/") {
+            e.preventDefault();
+            focusField(els.search);
+            return;
+          }
+          if (key === "d") {
+            map.pm.enableDraw("Polygon", { allowSelfIntersection: false });
+            return;
+          }
+          if (key === "i") {
+            els.toggleAdvanced.checked = !els.toggleAdvanced.checked;
+            setAdvancedMode(els.toggleAdvanced.checked);
+            return;
+          }
+          if (key === "l") {
+            els.toggleOtherLabels.checked = !els.toggleOtherLabels.checked;
+            state.ui.showOtherLabels = els.toggleOtherLabels.checked;
+            refreshAllLayerLabels();
+          }
+        });
+      }
+
+      function initializeUiState() {
+        els.badgeExport.title = "Click to export";
+        setSelected(null);
+        setAdvancedMode(false);
+        refreshNameSuggestHelp();
+        refreshSearchControls();
+        refreshExportBehaviorHint();
+        refreshSaveState();
+        syncFooterHeight();
+        window.addEventListener("resize", syncFooterHeight);
+        if (typeof ResizeObserver !== "undefined") {
+          const footerObserver = new ResizeObserver(() => syncFooterHeight());
+          footerObserver.observe(els.statusWrap);
+        }
+        if (typeof mobileScreenQuery.addEventListener === "function") {
+          mobileScreenQuery.addEventListener("change", handleMobileLayoutChange);
+        } else if (typeof mobileScreenQuery.addListener === "function") {
+          mobileScreenQuery.addListener(handleMobileLayoutChange);
+        }
+        handleMobileLayoutChange();
+        setOnlineTiles();
+        setStatus(`Geocoder: ${geocodeProviderLabel()}.`);
+      }
 
       function initPanelResize() {
         if (!panelResizer) return;
@@ -3063,8 +3077,12 @@
         restoreWidth();
       }
 
-      initPanelResize();
-      (async () => {
+      async function bootApp() {
+        bindUiEventHandlers();
+        bindMapEventHandlers();
+        initializeUiState();
+        initPanelResize();
+
         const autosave = loadAutosaveSnapshot();
         if (autosave?.data?.type === "FeatureCollection") {
           loadGeoJSON(autosave.data);
@@ -3084,7 +3102,9 @@
         }
 
         await tryLoadDefaultGeoJSON();
-      })();
+      }
+
+      void bootApp();
     </script>
   </body>
 </html>
