@@ -2433,8 +2433,9 @@
 
       async function runExport() {
         const gj = exportGeoJSON();
+        const supportsDirectOverwrite = !!window.showSaveFilePicker;
         try {
-          if (window.showSaveFilePicker) {
+          if (supportsDirectOverwrite) {
             if (!state.exportFileHandle) {
               state.exportFileHandle = await window.showSaveFilePicker({
                 suggestedName: state.currentGeoJSONName || DEFAULT_GEOJSON_FILENAME,
@@ -2466,6 +2467,18 @@
           }
           state.exportFileHandle = null;
           setStatus("Direct overwrite failed, downloaded file instead.", true);
+        }
+
+        const needsDownloadConfirm = !supportsDirectOverwrite && !!state.lastExportAt;
+        if (needsDownloadConfirm) {
+          const ok = confirm(
+            "This browser cannot overwrite an existing file. Export will download a new copy. Continue?",
+          );
+          if (!ok) {
+            setStatus("Export canceled.");
+            refreshSaveState();
+            return;
+          }
         }
 
         downloadGeoJSON(state.currentGeoJSONName || DEFAULT_GEOJSON_FILENAME, gj);
