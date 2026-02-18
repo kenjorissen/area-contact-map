@@ -460,6 +460,37 @@
       .shortcutsModal.open {
         display: flex;
       }
+      .deleteConfirmModal {
+        position: fixed;
+        inset: 0;
+        z-index: 2100;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(15, 23, 42, 0.35);
+        padding: 16px;
+        box-sizing: border-box;
+      }
+      .deleteConfirmModal.open {
+        display: flex;
+      }
+      .deleteConfirmCard {
+        width: min(420px, 100%);
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        box-shadow: 0 14px 36px rgba(2, 8, 23, 0.25);
+        padding: 12px;
+      }
+      .deleteConfirmActions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .deleteConfirmActions button {
+        width: auto;
+      }
       .shortcutsCard {
         width: min(520px, 100%);
         max-height: min(80vh, 640px);
@@ -819,6 +850,24 @@
         </div>
       </div>
     </div>
+    <div
+      id="deleteConfirmModal"
+      class="deleteConfirmModal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="deleteConfirmTitle"
+      aria-hidden="true"
+      tabindex="-1"
+    >
+      <div class="deleteConfirmCard">
+        <div id="deleteConfirmTitle" class="titleStrong">Delete area?</div>
+        <div id="deleteConfirmMessage" class="muted">This cannot be undone.</div>
+        <div class="deleteConfirmActions">
+          <button id="btnDeleteConfirmCancel" class="btnAutoWidth" type="button">Cancel</button>
+          <button id="btnDeleteConfirmProceed" class="btnAutoWidth" type="button">Delete</button>
+        </div>
+      </div>
+    </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.min.js"></script>
 
@@ -830,9 +879,10 @@
        * - state.runtime holds ephemeral process values (timers, queues, focus-restore refs).
        *
        * Surface model:
-       * - Surfaces are "sidebar", "editor", and "shortcuts".
+       * - Surfaces are "sidebar", "editor", "shortcuts", and "deleteConfirm".
        * - Use isSurfaceOpen/setSurfaceOpen/toggleSurface/closeTopSurface for open-close logic.
-       * - Escape closes top-most surface by policy: shortcuts -> editor -> sidebar (mobile).
+       * - Escape closes top-most surface by policy:
+       *   deleteConfirm -> shortcuts -> editor -> sidebar (mobile).
        *
        * Render/event flow:
        * - Event handlers mutate state first, then call render/sync helpers.
@@ -907,6 +957,7 @@
           showOtherLabels: true,
           editorDrawerOpen: false,
           shortcutsOpen: false,
+          deleteConfirmOpen: false,
           sidebarOpen: true,
         },
         runtime: {
@@ -920,7 +971,11 @@
           restoreFocusEl: {
             editor: null,
             shortcuts: null,
+            deleteConfirm: null,
           },
+          removeConfirmInProgress: false,
+          pendingDeleteLayer: null,
+          deleteConfirmResolve: null,
         },
       };
       let sidebarToggleControlEl = null;
@@ -964,6 +1019,10 @@
         statusHintShortcuts: document.getElementById("statusHintShortcuts"),
         shortcutsModal: document.getElementById("shortcutsModal"),
         btnCloseShortcuts: document.getElementById("btnCloseShortcuts"),
+        deleteConfirmModal: document.getElementById("deleteConfirmModal"),
+        deleteConfirmMessage: document.getElementById("deleteConfirmMessage"),
+        btnDeleteConfirmCancel: document.getElementById("btnDeleteConfirmCancel"),
+        btnDeleteConfirmProceed: document.getElementById("btnDeleteConfirmProceed"),
 
         search: document.getElementById("search"),
         btnClearSearch: document.getElementById("btnClearSearch"),
@@ -2074,6 +2133,48 @@
         }
       }
 
+      function setDeleteConfirmOpen(open) {
+        const isOpen = !!open;
+        const wasOpen = state.ui.deleteConfirmOpen;
+        if (isOpen && !wasOpen) rememberFocusFor("deleteConfirm");
+        if (!isOpen && wasOpen) {
+          restoreRememberedFocusFor("deleteConfirm");
+        }
+        state.ui.deleteConfirmOpen = isOpen;
+        els.deleteConfirmModal.classList.toggle("open", state.ui.deleteConfirmOpen);
+        els.deleteConfirmModal.setAttribute(
+          "aria-hidden",
+          state.ui.deleteConfirmOpen ? "false" : "true",
+        );
+        if (state.ui.deleteConfirmOpen) {
+          requestAnimationFrame(() => {
+            const focusables = dialogFocusable(els.deleteConfirmModal);
+            const target = focusables[0] || els.deleteConfirmModal;
+            if (typeof target.focus === "function") target.focus();
+          });
+        }
+      }
+
+      function resolveDeleteConfirm(confirmed) {
+        const resolve = state.runtime.deleteConfirmResolve;
+        state.runtime.deleteConfirmResolve = null;
+        state.runtime.pendingDeleteLayer = null;
+        setDeleteConfirmOpen(false);
+        if (resolve) resolve(!!confirmed);
+      }
+
+      function confirmDeleteLayer(layer) {
+        return new Promise((resolve) => {
+          state.runtime.pendingDeleteLayer = layer || null;
+          state.runtime.deleteConfirmResolve = resolve;
+          const name = String(layer?.feature?.properties?.name || "").trim();
+          const areaId = areaIdValue(layer?.feature?.properties || {});
+          const label = name || areaId || "this area";
+          els.deleteConfirmMessage.textContent = `Delete ${label}? This cannot be undone.`;
+          setDeleteConfirmOpen(true);
+        });
+      }
+
       function zoomToAll() {
         const layers = drawnItems.getLayers();
         if (!layers.length) {
@@ -2091,6 +2192,7 @@
       function isSurfaceOpen(surface) {
         if (surface === "editor") return !!state.ui.editorDrawerOpen;
         if (surface === "shortcuts") return !!state.ui.shortcutsOpen;
+        if (surface === "deleteConfirm") return !!state.ui.deleteConfirmOpen;
         if (surface === "sidebar") return !!state.ui.sidebarOpen;
         return false;
       }
@@ -2150,6 +2252,10 @@
           setShortcutsModalOpen(open);
           return;
         }
+        if (surface === "deleteConfirm") {
+          setDeleteConfirmOpen(open);
+          return;
+        }
         if (surface === "sidebar") {
           setSidebarOpen(open);
         }
@@ -2160,6 +2266,7 @@
       }
 
       function currentTopSurface() {
+        if (isSurfaceOpen("deleteConfirm")) return "deleteConfirm";
         if (isSurfaceOpen("shortcuts")) return "shortcuts";
         if (isSurfaceOpen("editor")) return "editor";
         if (isMobileLayout() && isSurfaceOpen("sidebar")) return "sidebar";
@@ -2171,6 +2278,10 @@
         if (!top) return false;
         if (top === "editor") {
           closeEditorSafely();
+          return true;
+        }
+        if (top === "deleteConfirm") {
+          resolveDeleteConfirm(false);
           return true;
         }
         setSurfaceOpen(top, false);
@@ -2298,6 +2409,12 @@
         });
         drawnItems.addLayer(layer);
         scheduleLabelDeclutter();
+      }
+
+      function exitRemovalMode() {
+        if (map.pm?.disableGlobalRemovalMode) {
+          map.pm.disableGlobalRemovalMode();
+        }
       }
 
       function downloadGeoJSON(filename, gj) {
@@ -2516,6 +2633,11 @@
       els.shortcutsModal.addEventListener("click", (e) => {
         if (e.target === els.shortcutsModal) setSurfaceOpen("shortcuts", false);
       });
+      els.btnDeleteConfirmCancel.addEventListener("click", () => resolveDeleteConfirm(false));
+      els.btnDeleteConfirmProceed.addEventListener("click", () => resolveDeleteConfirm(true));
+      els.deleteConfirmModal.addEventListener("click", (e) => {
+        if (e.target === els.deleteConfirmModal) resolveDeleteConfirm(false);
+      });
       els.toggleAdvanced.addEventListener("change", () =>
         setAdvancedMode(els.toggleAdvanced.checked),
       );
@@ -2584,38 +2706,39 @@
 
       map.on("pm:remove", async ({ layer }) => {
         if (!layer) return;
-        if (!drawnItems.hasLayer(layer)) drawnItems.addLayer(layer);
-        setSelected(layer);
-        refreshList();
-        // Yield to the event loop so selection/list highlight can paint
-        // before the blocking native confirm dialog opens.
-        await new Promise((resolve) => setTimeout(resolve, 40));
-
-        const wasSelected = state.selectedLayer === layer;
-        const ok = confirm("Delete this area? This cannot be undone.");
-        if (!ok) {
-          if (map.pm?.globalRemovalModeEnabled?.()) {
-            map.pm.disableGlobalRemovalMode();
-          }
-          if (!map.hasLayer(layer)) layer.addTo(map);
+        if (state.runtime.removeConfirmInProgress) return;
+        state.runtime.removeConfirmInProgress = true;
+        try {
           if (!drawnItems.hasLayer(layer)) drawnItems.addLayer(layer);
-          applyLayerStyle(layer);
-          updateLayerLabel(layer);
-          if (wasSelected) setSelected(layer);
+          setSelected(layer);
           refreshList();
-          scheduleLabelDeclutter();
-          setStatus("Delete canceled. Removal mode exited.");
-          return;
-        }
 
-        // Keep feature-group state consistent for list/export paths.
-        if (map.hasLayer(layer)) map.removeLayer(layer);
-        if (drawnItems.hasLayer(layer)) drawnItems.removeLayer(layer);
-        if (state.selectedLayer && !drawnItems.hasLayer(state.selectedLayer)) setSelected(null);
-        refreshList();
-        markDirty();
-        scheduleLabelDeclutter();
-        setStatus("Area deleted.");
+          const wasSelected = state.selectedLayer === layer;
+          const ok = await confirmDeleteLayer(layer);
+          if (!ok) {
+            exitRemovalMode();
+            if (!map.hasLayer(layer)) layer.addTo(map);
+            if (!drawnItems.hasLayer(layer)) drawnItems.addLayer(layer);
+            applyLayerStyle(layer);
+            updateLayerLabel(layer);
+            if (wasSelected) setSelected(layer);
+            refreshList();
+            scheduleLabelDeclutter();
+            setStatus("Delete canceled. Removal mode exited.");
+            return;
+          }
+
+          // Keep feature-group state consistent for list/export paths.
+          if (map.hasLayer(layer)) map.removeLayer(layer);
+          if (drawnItems.hasLayer(layer)) drawnItems.removeLayer(layer);
+          if (state.selectedLayer && !drawnItems.hasLayer(state.selectedLayer)) setSelected(null);
+          refreshList();
+          markDirty();
+          scheduleLabelDeclutter();
+          setStatus("Area deleted.");
+        } finally {
+          state.runtime.removeConfirmInProgress = false;
+        }
       });
       map.on("click", (e) => {
         const target = e?.originalEvent?.target;
@@ -2739,6 +2862,7 @@
         focusField(els.search);
       });
       document.addEventListener("keydown", (e) => {
+        if (isSurfaceOpen("deleteConfirm") && trapDialogTab(e, els.deleteConfirmModal)) return;
         if (isSurfaceOpen("shortcuts") && trapDialogTab(e, els.shortcutsModal)) return;
         if (isSurfaceOpen("editor") && trapDialogTab(e, els.selectedEditor)) return;
         const target = e.target;
