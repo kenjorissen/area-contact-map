@@ -1810,7 +1810,16 @@
         removalMode: true,
         rotateMode: false,
       });
-      map.pm.setLang("en");
+      map.pm.setLang("en", {
+        buttonTitles: {
+          drawPolyButton: "Draw area",
+          editButton: "Edit areas",
+          deleteButton: "Delete areas",
+        },
+        tooltips: {
+          finishPoly: "Click first point to close this area",
+        },
+      });
       map.pm.setGlobalOptions({
         allowSelfIntersection: false,
       });
