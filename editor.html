@@ -6,7 +6,10 @@
     <title>Area Editor</title>
 
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css"
+    />
 
     <style>
       :root {
@@ -817,7 +820,7 @@
       </div>
     </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+    <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.min.js"></script>
 
     <script>
       /*
@@ -881,14 +884,6 @@
         inactive: { color: "#374151", fillColor: "#6b7280" },
         blank: { color: "#1d4ed8", fillColor: "#3b82f6" },
       };
-
-      // Compatibility shim for Leaflet Draw 1.0.4 on modern Leaflet:
-      // Draw's edit path still references deprecated L.LineUtil._flat.
-      // Alias it to L.LineUtil.isFlat so edit mode works without console noise.
-      // Safe because both are the same flat-coordinates check.
-      if (L?.LineUtil?.isFlat && L?.LineUtil?._flat !== L.LineUtil.isFlat) {
-        L.LineUtil._flat = L.LineUtil.isFlat;
-      }
 
       const map = L.map("map", { preferCanvas: true });
       map.setView(DEFAULT_VIEW, DEFAULT_ZOOM);
@@ -1800,52 +1795,25 @@
       addSidebarToggleControl();
       addZoomAllControl();
 
-      L.drawLocal.draw.toolbar.buttons.polygon = "Draw a new area";
-      L.drawLocal.draw.handlers.polygon.tooltip.start = "Click to start a new area";
-      L.drawLocal.draw.handlers.polygon.tooltip.cont = "Click to continue the area";
-      L.drawLocal.draw.handlers.polygon.tooltip.end = "Click first point to finish";
-      L.drawLocal.edit.toolbar.buttons.edit = "Edit areas";
-      L.drawLocal.edit.toolbar.buttons.editDisabled = "No areas to edit";
-      L.drawLocal.edit.toolbar.buttons.remove = "Delete areas";
-      L.drawLocal.edit.toolbar.buttons.removeDisabled = "No areas to delete";
-      L.drawLocal.edit.toolbar.actions.save.title = "Save area edits";
-      L.drawLocal.edit.toolbar.actions.cancel.title = "Cancel area edits";
-      L.drawLocal.edit.toolbar.actions.clearAll = {
-        title: "Delete all areas",
-        text: "Clear all",
-      };
-
-      if (L.EditToolbar?.Delete?.prototype?.removeAllLayers) {
-        const originalRemoveAllLayers = L.EditToolbar.Delete.prototype.removeAllLayers;
-        L.EditToolbar.Delete.include({
-          removeAllLayers() {
-            const count = this._deletableLayers?.getLayers?.().length || 0;
-            if (count > 0) {
-              const ok = confirm(`Delete all ${count} area(s)? This cannot be undone.`);
-              if (!ok) return;
-            }
-            return originalRemoveAllLayers.call(this);
-          },
-        });
-      }
-
-      const drawControl = new L.Control.Draw({
+      map.pm.addControls({
         position: "topleft",
-        draw: {
-          polygon: {
-            allowIntersection: false,
-            showArea: true,
-            shapeOptions: { fillOpacity: 0.15 },
-          },
-          polyline: false,
-          rectangle: false,
-          circle: false,
-          circlemarker: false,
-          marker: false,
-        },
-        edit: { featureGroup: drawnItems },
+        drawMarker: false,
+        drawCircleMarker: false,
+        drawPolyline: false,
+        drawRectangle: false,
+        drawCircle: false,
+        drawText: false,
+        drawPolygon: true,
+        editMode: true,
+        dragMode: false,
+        cutPolygon: false,
+        removalMode: true,
+        rotateMode: false,
       });
-      map.addControl(drawControl);
+      map.pm.setLang("en");
+      map.pm.setGlobalOptions({
+        allowSelfIntersection: false,
+      });
 
       function setSelected(layer) {
         const prev = state.selectedLayer;
@@ -2299,6 +2267,9 @@
         ensureFeatureScaffold(layer);
         if (!layer.feature.properties.status) layer.feature.properties.status = "unassigned";
         ensureAreaId(layer);
+        if (layer.pm?.setOptions) {
+          layer.pm.setOptions({ allowSelfIntersection: false });
+        }
         applyLayerStyle(layer);
         updateLayerLabel(layer);
         layer.on("click", () => {
@@ -2569,7 +2540,7 @@
       els.f_contact.addEventListener("keydown", onEnterBlurField);
       els.f_status.addEventListener("keydown", onEnterBlurField);
 
-      map.on(L.Draw.Event.CREATED, (e) => {
+      map.on("pm:create", (e) => {
         const layer = e.layer;
         bindLayer(layer);
         setSelected(layer);
@@ -2591,20 +2562,48 @@
         scheduleLabelDeclutter();
       });
 
-      map.on(L.Draw.Event.EDITED, () => {
-        drawnItems.eachLayer((layer) => {
-          updateLayerLabel(layer);
-        });
+      map.on("pm:update", ({ layer }) => {
+        if (!layer || !drawnItems.hasLayer(layer)) return;
+        updateLayerLabel(layer);
         refreshList();
         markDirty();
         scheduleLabelDeclutter();
       });
 
-      map.on(L.Draw.Event.DELETED, () => {
+      map.on("pm:remove", async ({ layer }) => {
+        if (!layer) return;
+        if (!drawnItems.hasLayer(layer)) drawnItems.addLayer(layer);
+        setSelected(layer);
+        refreshList();
+        // Yield to the event loop so selection/list highlight can paint
+        // before the blocking native confirm dialog opens.
+        await new Promise((resolve) => setTimeout(resolve, 40));
+
+        const wasSelected = state.selectedLayer === layer;
+        const ok = confirm("Delete this area? This cannot be undone.");
+        if (!ok) {
+          if (map.pm?.globalRemovalModeEnabled?.()) {
+            map.pm.disableGlobalRemovalMode();
+          }
+          if (!map.hasLayer(layer)) layer.addTo(map);
+          if (!drawnItems.hasLayer(layer)) drawnItems.addLayer(layer);
+          applyLayerStyle(layer);
+          updateLayerLabel(layer);
+          if (wasSelected) setSelected(layer);
+          refreshList();
+          scheduleLabelDeclutter();
+          setStatus("Delete canceled. Removal mode exited.");
+          return;
+        }
+
+        // Keep feature-group state consistent for list/export paths.
+        if (map.hasLayer(layer)) map.removeLayer(layer);
+        if (drawnItems.hasLayer(layer)) drawnItems.removeLayer(layer);
         if (state.selectedLayer && !drawnItems.hasLayer(state.selectedLayer)) setSelected(null);
         refreshList();
         markDirty();
         scheduleLabelDeclutter();
+        setStatus("Area deleted.");
       });
       map.on("click", (e) => {
         const target = e?.originalEvent?.target;
@@ -2779,7 +2778,7 @@
           return;
         }
         if (key === "d") {
-          new L.Draw.Polygon(map, drawControl.options.draw.polygon).enable();
+          map.pm.enableDraw("Polygon", { allowSelfIntersection: false });
           return;
         }
         if (key === "i") {

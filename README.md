@@ -54,7 +54,7 @@ Site URL pattern:
 
 2. Edit areas:
 
-- Draw using Leaflet Draw controls.
+- Draw/edit/delete using map controls (Leaflet + Geoman).
 - Select area by clicking/tapping it.
 - Open editor:
 - Desktop: double-click area or use `Edit selected`.
