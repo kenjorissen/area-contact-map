@@ -2022,7 +2022,7 @@
           els.btnMobileEditSelected.hidden = !(
             isMobileLayout() &&
             state.selectedLayer &&
-            !state.ui.editorDrawerOpen
+            !isSurfaceOpen("editor")
           );
         }
       }
@@ -2059,8 +2059,15 @@
         return mobileScreenQuery.matches;
       }
 
+      function isSurfaceOpen(surface) {
+        if (surface === "editor") return !!state.ui.editorDrawerOpen;
+        if (surface === "shortcuts") return !!state.ui.shortcutsOpen;
+        if (surface === "sidebar") return !!state.ui.sidebarOpen;
+        return false;
+      }
+
       function isSidebarOpen() {
-        return !!state.ui.sidebarOpen;
+        return isSurfaceOpen("sidebar");
       }
 
       function applySidebarLayoutSideEffects() {
@@ -2108,8 +2115,40 @@
         setDesktopSidebarCollapsed(!next);
       }
 
-      function toggleSidebarOpen() {
-        setSidebarOpen(!isSidebarOpen());
+      function setSurfaceOpen(surface, open) {
+        if (surface === "editor") {
+          setEditorDrawerOpen(open);
+          return;
+        }
+        if (surface === "shortcuts") {
+          setShortcutsModalOpen(open);
+          return;
+        }
+        if (surface === "sidebar") {
+          setSidebarOpen(open);
+        }
+      }
+
+      function toggleSurface(surface) {
+        setSurfaceOpen(surface, !isSurfaceOpen(surface));
+      }
+
+      function currentTopSurface() {
+        if (isSurfaceOpen("shortcuts")) return "shortcuts";
+        if (isSurfaceOpen("editor")) return "editor";
+        if (isMobileLayout() && isSurfaceOpen("sidebar")) return "sidebar";
+        return "";
+      }
+
+      function closeTopSurface() {
+        const top = currentTopSurface();
+        if (!top) return false;
+        if (top === "editor") {
+          closeEditorSafely();
+          return true;
+        }
+        setSurfaceOpen(top, false);
+        return true;
       }
 
       function handleMobileLayoutChange() {
@@ -2155,7 +2194,7 @@
             L.DomEvent.disableClickPropagation(container);
             L.DomEvent.on(link, "click", (e) => {
               L.DomEvent.preventDefault(e);
-              toggleSidebarOpen();
+              toggleSurface("sidebar");
             });
 
             sidebarToggleControlEl = link;
@@ -2422,16 +2461,16 @@
       els.editorBackdrop.addEventListener("click", () => {
         closeEditorSafely();
       });
-      els.statusHintShortcuts.addEventListener("click", () => setShortcutsModalOpen(true));
+      els.statusHintShortcuts.addEventListener("click", () => setSurfaceOpen("shortcuts", true));
       els.statusHintShortcuts.addEventListener("keydown", (e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          setShortcutsModalOpen(true);
+          setSurfaceOpen("shortcuts", true);
         }
       });
-      els.btnCloseShortcuts.addEventListener("click", () => setShortcutsModalOpen(false));
+      els.btnCloseShortcuts.addEventListener("click", () => setSurfaceOpen("shortcuts", false));
       els.shortcutsModal.addEventListener("click", (e) => {
-        if (e.target === els.shortcutsModal) setShortcutsModalOpen(false);
+        if (e.target === els.shortcutsModal) setSurfaceOpen("shortcuts", false);
       });
       els.toggleAdvanced.addEventListener("change", () =>
         setAdvancedMode(els.toggleAdvanced.checked),
@@ -2514,8 +2553,8 @@
           target.closest(".leaflet-interactive")
         )
           return;
-        if (isMobileLayout() && isSidebarOpen()) {
-          setSidebarOpen(false);
+        if (isMobileLayout() && isSurfaceOpen("sidebar")) {
+          setSurfaceOpen("sidebar", false);
         }
         if (state.selectedLayer) setSelected(null);
       });
@@ -2603,8 +2642,8 @@
 
       els.btnExport.addEventListener("click", runExport);
       els.badgeExport.addEventListener("click", runExport);
-      els.btnCloseMobilePanel.addEventListener("click", () => setSidebarOpen(false));
-      els.mobilePanelBackdrop.addEventListener("click", () => setSidebarOpen(false));
+      els.btnCloseMobilePanel.addEventListener("click", () => setSurfaceOpen("sidebar", false));
+      els.mobilePanelBackdrop.addEventListener("click", () => setSurfaceOpen("sidebar", false));
 
       els.btnNew.addEventListener("click", () => {
         if (!confirm("Clear everything and start a new empty map?")) return;
@@ -2618,8 +2657,8 @@
 
       els.search.addEventListener("input", refreshList);
       document.addEventListener("keydown", (e) => {
-        if (state.ui.shortcutsOpen && trapDialogTab(e, els.shortcutsModal)) return;
-        if (state.ui.editorDrawerOpen && trapDialogTab(e, els.selectedEditor)) return;
+        if (isSurfaceOpen("shortcuts") && trapDialogTab(e, els.shortcutsModal)) return;
+        if (isSurfaceOpen("editor") && trapDialogTab(e, els.selectedEditor)) return;
         const target = e.target;
         const tag = target?.tagName;
         const isTypingTarget =
@@ -2630,28 +2669,16 @@
 
         if (e.key === "?") {
           e.preventDefault();
-          const currentlyOpen = state.ui.shortcutsOpen;
-          setShortcutsModalOpen(!currentlyOpen);
+          toggleSurface("shortcuts");
           return;
         }
         if (e.key === "Escape") {
-          if (state.ui.shortcutsOpen) {
-            setShortcutsModalOpen(false);
-            return;
-          }
-          if (isMobileLayout() && isSidebarOpen()) {
-            setSidebarOpen(false);
-            return;
-          }
-          if (state.ui.editorDrawerOpen) {
-            closeEditorSafely();
-            return;
-          }
+          if (closeTopSurface()) return;
           if (state.selectedLayer) setSelected(null);
           return;
         }
-        if (state.ui.shortcutsOpen) return;
-        if (e.key === "Enter" && state.selectedLayer && !state.ui.editorDrawerOpen) {
+        if (isSurfaceOpen("shortcuts")) return;
+        if (e.key === "Enter" && state.selectedLayer && !isSurfaceOpen("editor")) {
           setEditorDrawerOpen(true);
           return;
         }
@@ -2664,7 +2691,7 @@
           return;
         }
         if (key === "b") {
-          toggleSidebarOpen();
+          toggleSurface("sidebar");
           return;
         }
         if (key === "o") {
