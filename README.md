@@ -41,6 +41,23 @@ python3 -m http.server 8000
 open http://localhost:8000/editor.html
 ```
 
+## Deploy On GitHub Pages
+
+This repo is ready to publish as a static site.
+
+1. Go to repository `Settings` -> `Pages`.
+2. Under `Build and deployment`, set:
+
+- `Source`: `Deploy from a branch`
+- `Branch`: `main`
+- `Folder`: `/ (root)`
+
+3. Save and wait for the Pages deploy to finish.
+
+Your app will be available at:
+
+- `https://<your-github-username>.github.io/area-contact-map/`
+
 ## Core Workflow
 
 1. Load data
