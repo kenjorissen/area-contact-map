@@ -888,6 +888,7 @@
        * - Event handlers mutate state first, then call render/sync helpers.
        * - DOM classes/ARIA are outputs of state, not the source of truth.
        */
+      // App configuration constants.
       const DEFAULT_VIEW = [44.98, -93.265];
       const DEFAULT_ZOOM = 13;
       const ONLINE_TILE_TEMPLATE = "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
@@ -935,6 +936,7 @@
         blank: { color: "#1d4ed8", fillColor: "#3b82f6" },
       };
 
+      // Core map/layer objects.
       const map = L.map("map", { preferCanvas: true });
       map.setView(DEFAULT_VIEW, DEFAULT_ZOOM);
       const panelResizer = document.getElementById("panelResizer");
@@ -942,6 +944,7 @@
       const drawnItems = new L.FeatureGroup();
       map.addLayer(drawnItems);
 
+      // Single source of truth for app data + UI intent.
       const state = {
         selectedLayer: null,
         tileLayer: null,
@@ -984,6 +987,7 @@
         state.ui.sidebarOpen = false;
       }
 
+      // Cached DOM references used throughout render/event flows.
       const els = {
         btnOpen: document.getElementById("btnOpen"),
         btnExport: document.getElementById("btnExport"),
@@ -2175,6 +2179,7 @@
         showCancel = true,
       } = {}) {
         return new Promise((resolve) => {
+          // Reuse the delete modal surface for all app-level confirms/alerts.
           state.runtime.confirmResolve = resolve;
           els.deleteConfirmTitle.textContent = title;
           els.deleteConfirmMessage.textContent = message;
@@ -2307,6 +2312,7 @@
       }
 
       function closeTopSurface() {
+        // Escape behavior follows currentTopSurface() priority.
         const top = currentTopSurface();
         if (!top) return false;
         if (top === "editor") {
@@ -2728,6 +2734,7 @@
       }
 
       function bindMapEventHandlers() {
+        // Geoman create -> new layer workflow (bind/select/suggest/edit).
         map.on("pm:create", (e) => {
           const layer = e.layer;
           bindLayer(layer);
@@ -2762,6 +2769,7 @@
             const wasSelected = state.selectedLayer === layer;
             const ok = await confirmDeleteLayer(layer);
             if (!ok) {
+              // Cancel restores layer and exits remove mode to avoid repeat prompts.
               exitRemovalMode();
               if (!map.hasLayer(layer)) layer.addTo(map);
               if (!drawnItems.hasLayer(layer)) drawnItems.addLayer(layer);
@@ -2806,6 +2814,7 @@
       }
 
       function bindUiEventHandlers() {
+        // All DOM listeners are registered in one place for predictable startup.
         els.btnEditSelected.addEventListener("click", () => {
           if (!state.selectedLayer) return;
           setEditorDrawerOpen(true);
@@ -2941,6 +2950,7 @@
             return;
           }
           if (e.key === "Escape") {
+            // First close UI surfaces, then clear map selection.
             if (closeTopSurface()) return;
             if (state.selectedLayer) setSelected(null);
             return;
@@ -2993,6 +3003,7 @@
       }
 
       function initializeUiState() {
+        // Initial render pass before data load.
         els.badgeExport.title = "Click to export";
         setSelected(null);
         setAdvancedMode(false);
@@ -3017,6 +3028,7 @@
       }
 
       function initPanelResize() {
+        // Desktop-only splitter behavior (safe no-op on mobile layout).
         if (!panelResizer) return;
         const minW = 280;
         const minMapW = 320;
@@ -3078,6 +3090,7 @@
       }
 
       async function bootApp() {
+        // Startup order: bind events -> render baseline UI -> restore sizing -> load data.
         bindUiEventHandlers();
         bindMapEventHandlers();
         initializeUiState();
