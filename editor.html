@@ -844,24 +844,33 @@
         tileLayer: null,
         currentGeoJSONName: DEFAULT_GEOJSON_FILENAME,
         exportFileHandle: null,
-        showAdvanced: false,
-        showOtherLabels: true,
-        editorDrawerOpen: false,
         nextAreaIdNumber: 1,
         dirtySinceAutosave: false,
         dirtySinceExport: false,
         lastAutosaveAt: null,
         lastExportAt: null,
-        geocodeBackoffUntil: 0,
-        geocodeWarmupDone: false,
-        hasSuccessfulGeocode: false,
+        ui: {
+          showAdvanced: false,
+          showOtherLabels: true,
+          editorDrawerOpen: false,
+          shortcutsOpen: false,
+          sidebarOpen: true,
+        },
+        runtime: {
+          geocodeBackoffUntil: 0,
+          geocodeWarmupDone: false,
+          hasSuccessfulGeocode: false,
+          autosaveTimer: null,
+          labelDeclutterFrame: null,
+          geocodeQueue: Promise.resolve(),
+          lastGeocodeAt: 0,
+        },
       };
-      let autosaveTimer = null;
-      let labelDeclutterFrame = null;
       let sidebarToggleControlEl = null;
-      let geocodeQueue = Promise.resolve();
-      let lastGeocodeAt = 0;
       const mobileScreenQuery = window.matchMedia("(max-width: 900px)");
+      if (mobileScreenQuery.matches) {
+        state.ui.sidebarOpen = false;
+      }
 
       const els = {
         btnOpen: document.getElementById("btnOpen"),
@@ -922,24 +931,24 @@
       }
 
       async function scheduleGeocodeCall(call) {
-        const run = geocodeQueue.then(async () => {
-          const elapsed = Date.now() - lastGeocodeAt;
-          const cooldownMs = Math.max(0, state.geocodeBackoffUntil - Date.now());
+        const run = state.runtime.geocodeQueue.then(async () => {
+          const elapsed = Date.now() - state.runtime.lastGeocodeAt;
+          const cooldownMs = Math.max(0, state.runtime.geocodeBackoffUntil - Date.now());
           const waitMs = Math.max(0, GEOCODE_MIN_INTERVAL_MS - elapsed, cooldownMs);
           if (waitMs > 0) await sleep(waitMs);
           try {
             return await call();
           } finally {
-            lastGeocodeAt = Date.now();
+            state.runtime.lastGeocodeAt = Date.now();
           }
         });
-        geocodeQueue = run.catch(() => {});
+        state.runtime.geocodeQueue = run.catch(() => {});
         return run;
       }
 
       async function ensureGeocodeWarmup() {
-        if (state.geocodeWarmupDone) return;
-        state.geocodeWarmupDone = true;
+        if (state.runtime.geocodeWarmupDone) return;
+        state.runtime.geocodeWarmupDone = true;
         try {
           await scheduleGeocodeCall(async () => {
             const ctrl = new AbortController();
@@ -1231,14 +1240,14 @@
             }
           });
           const road = parseRoadFromNominatim(data);
-          state.geocodeBackoffUntil = 0;
-          state.hasSuccessfulGeocode = true;
+          state.runtime.geocodeBackoffUntil = 0;
+          state.runtime.hasSuccessfulGeocode = true;
           return { road, error: "" };
         } catch (err) {
           const msg = describeLookupError(err);
           if (shouldBackoffForError(msg)) {
-            state.geocodeBackoffUntil = Math.max(
-              state.geocodeBackoffUntil,
+            state.runtime.geocodeBackoffUntil = Math.max(
+              state.runtime.geocodeBackoffUntil,
               Date.now() + GEOCODE_FAILURE_BACKOFF_MS,
             );
           }
@@ -1373,10 +1382,10 @@
         setSuggestModalOpen(true, `Trying ${provider} to suggest a name...`);
         setStatus(`Trying ${provider} to suggest an area name...`);
         try {
-          if (!state.geocodeWarmupDone) void ensureGeocodeWarmup();
+          if (!state.runtime.geocodeWarmupDone) void ensureGeocodeWarmup();
           const details = await suggestAreaNameFromBoundsDetails(layer, {
             totalBudgetMs: 5200,
-            reverseOpts: { timeoutMs: state.hasSuccessfulGeocode ? 1600 : 2800 },
+            reverseOpts: { timeoutMs: state.runtime.hasSuccessfulGeocode ? 1600 : 2800 },
           });
           const suggested = details.suggested || "";
           if (!suggested || String(p.name || "").trim()) {
@@ -1452,9 +1461,9 @@
       }
 
       function markCleanFromLoad() {
-        if (autosaveTimer) {
-          clearTimeout(autosaveTimer);
-          autosaveTimer = null;
+        if (state.runtime.autosaveTimer) {
+          clearTimeout(state.runtime.autosaveTimer);
+          state.runtime.autosaveTimer = null;
         }
         state.dirtySinceAutosave = false;
         state.dirtySinceExport = false;
@@ -1462,10 +1471,10 @@
       }
 
       function setAdvancedMode(show) {
-        state.showAdvanced = !!show;
-        els.rowAreaId.classList.toggle("hidden", !state.showAdvanced);
-        els.toggleAdvanced.checked = state.showAdvanced;
-        els.search.placeholder = state.showAdvanced
+        state.ui.showAdvanced = !!show;
+        els.rowAreaId.classList.toggle("hidden", !state.ui.showAdvanced);
+        els.toggleAdvanced.checked = state.ui.showAdvanced;
+        els.search.placeholder = state.ui.showAdvanced
           ? "Search by id/name/contact…"
           : "Search by name/contact…";
         refreshList();
@@ -1528,7 +1537,7 @@
 
       function updateLayerLabel(layer) {
         const isSelected = state.selectedLayer === layer;
-        if (!isSelected && !state.showOtherLabels) {
+        if (!isSelected && !state.ui.showOtherLabels) {
           if (layer.getTooltip()) layer.unbindTooltip();
           return;
         }
@@ -1538,7 +1547,7 @@
         const areaId = labelIdText(p);
         const contact = labelSecondaryText(p);
         const showContact = shouldShowContactLabel(layer) && contact;
-        const showId = state.showAdvanced && areaId;
+        const showId = state.ui.showAdvanced && areaId;
         const html = showContact
           ? `${escapeHtml(primary)}${showId ? `<span class="areaLabelId">${escapeHtml(areaId)}</span>` : ""}<span class="areaLabelSub">${escapeHtml(contact)}</span>`
           : `${escapeHtml(primary)}${showId ? `<span class="areaLabelId">${escapeHtml(areaId)}</span>` : ""}`;
@@ -1600,7 +1609,7 @@
       }
 
       function runLabelDeclutter() {
-        labelDeclutterFrame = null;
+        state.runtime.labelDeclutterFrame = null;
         const candidates = [];
         const viewport = map.getContainer().getBoundingClientRect();
 
@@ -1657,8 +1666,10 @@
       }
 
       function scheduleLabelDeclutter() {
-        if (labelDeclutterFrame) cancelAnimationFrame(labelDeclutterFrame);
-        labelDeclutterFrame = requestAnimationFrame(runLabelDeclutter);
+        if (state.runtime.labelDeclutterFrame) {
+          cancelAnimationFrame(state.runtime.labelDeclutterFrame);
+        }
+        state.runtime.labelDeclutterFrame = requestAnimationFrame(runLabelDeclutter);
       }
 
       function addTileLayer(urlTemplate, attributionText = "") {
@@ -1709,7 +1720,7 @@
       }
 
       function performAutosave() {
-        autosaveTimer = null;
+        state.runtime.autosaveTimer = null;
         if (!state.dirtySinceAutosave) return;
         const gj = exportGeoJSON();
         saveAutosaveSnapshot(gj);
@@ -1717,8 +1728,8 @@
       }
 
       function scheduleAutosave() {
-        if (autosaveTimer) clearTimeout(autosaveTimer);
-        autosaveTimer = setTimeout(performAutosave, AUTOSAVE_DELAY_MS);
+        if (state.runtime.autosaveTimer) clearTimeout(state.runtime.autosaveTimer);
+        state.runtime.autosaveTimer = setTimeout(performAutosave, AUTOSAVE_DELAY_MS);
       }
 
       addSidebarToggleControl();
@@ -1887,7 +1898,7 @@
         const prevStatus = p.status || "";
         const prevNotes = p.notes || "";
         const enteredAreaId = els.f_area_id.value.trim();
-        if (state.showAdvanced) {
+        if (state.ui.showAdvanced) {
           setAreaId(p, enteredAreaId || areaIdValue(p) || generateNextAreaId());
         } else if (!areaIdValue(p)) {
           setAreaId(p, generateNextAreaId());
@@ -1921,7 +1932,7 @@
 
       function setEditorDrawerOpen(open) {
         const next = !!open && !!state.selectedLayer;
-        state.editorDrawerOpen = next;
+        state.ui.editorDrawerOpen = next;
         els.selectedEditor.classList.toggle("drawerOpen", next);
         els.editorBackdrop.classList.toggle("open", next);
         refreshSelectionActions();
@@ -1938,14 +1949,15 @@
           els.btnMobileEditSelected.hidden = !(
             isMobileLayout() &&
             state.selectedLayer &&
-            !state.editorDrawerOpen
+            !state.ui.editorDrawerOpen
           );
         }
       }
 
       function setShortcutsModalOpen(open) {
         const isOpen = !!open;
-        els.shortcutsModal.classList.toggle("open", isOpen);
+        state.ui.shortcutsOpen = isOpen;
+        els.shortcutsModal.classList.toggle("open", state.ui.shortcutsOpen);
       }
 
       function zoomToAll() {
@@ -1963,8 +1975,7 @@
       }
 
       function isSidebarOpen() {
-        if (isMobileLayout()) return document.body.classList.contains("mobilePanelOpen");
-        return !document.body.classList.contains("sidebarCollapsed");
+        return !!state.ui.sidebarOpen;
       }
 
       function applySidebarLayoutSideEffects() {
@@ -1977,15 +1988,20 @@
 
       function setMobilePanelOpen(open) {
         const next = !!open;
-        if (document.body.classList.contains("mobilePanelOpen") === next) return;
-        document.body.classList.toggle("mobilePanelOpen", next);
+        if (state.ui.sidebarOpen === next) return;
+        state.ui.sidebarOpen = next;
+        document.body.classList.toggle("mobilePanelOpen", state.ui.sidebarOpen);
+        document.body.classList.toggle("sidebarCollapsed", false);
         applySidebarLayoutSideEffects();
       }
 
       function setDesktopSidebarCollapsed(collapsed) {
         const next = !!collapsed;
-        if (document.body.classList.contains("sidebarCollapsed") === next) return;
-        document.body.classList.toggle("sidebarCollapsed", next);
+        const open = !next;
+        if (state.ui.sidebarOpen === open) return;
+        state.ui.sidebarOpen = open;
+        document.body.classList.toggle("mobilePanelOpen", false);
+        document.body.classList.toggle("sidebarCollapsed", !state.ui.sidebarOpen);
         applySidebarLayoutSideEffects();
       }
 
@@ -2003,9 +2019,8 @@
       }
 
       function handleMobileLayoutChange() {
-        if (!isMobileLayout() && document.body.classList.contains("mobilePanelOpen")) {
-          document.body.classList.remove("mobilePanelOpen");
-        }
+        document.body.classList.toggle("mobilePanelOpen", isMobileLayout() && isSidebarOpen());
+        document.body.classList.toggle("sidebarCollapsed", !isMobileLayout() && !isSidebarOpen());
         applySidebarLayoutSideEffects();
         refreshSelectionActions();
       }
@@ -2245,20 +2260,20 @@
 
         els.items.innerHTML = "";
         for (const { layer, p } of rows) {
-          const searchParts = state.showAdvanced
+          const searchParts = state.ui.showAdvanced
             ? [areaIdValue(p), p.name, contactValue(p), p.status, p.notes]
             : [p.name, contactValue(p), p.status, p.notes];
           const hay = norm(searchParts.join(" "));
           if (q && !hay.includes(q)) continue;
           const palette = paletteForStatus(p.status);
           const pillStyle = `border-color:${palette.color};color:${palette.color};background:${hexToRgba(palette.fillColor, 0.14)};`;
-          const primary = state.showAdvanced
+          const primary = state.ui.showAdvanced
             ? escapeHtml(areaIdValue(p) || "(no id)")
             : escapeHtml(p.name || "(unnamed)");
-          const secondary = state.showAdvanced
+          const secondary = state.ui.showAdvanced
             ? escapeHtml(p.name || "")
             : escapeHtml(contactValue(p));
-          const tertiary = state.showAdvanced ? escapeHtml(contactValue(p)) : "";
+          const tertiary = state.ui.showAdvanced ? escapeHtml(contactValue(p)) : "";
 
           const div = document.createElement("div");
           div.className = `item ${state.selectedLayer === layer ? "selected" : ""}`;
@@ -2325,7 +2340,7 @@
         setAdvancedMode(els.toggleAdvanced.checked),
       );
       els.toggleOtherLabels.addEventListener("change", () => {
-        state.showOtherLabels = els.toggleOtherLabels.checked;
+        state.ui.showOtherLabels = els.toggleOtherLabels.checked;
         refreshAllLayerLabels();
       });
       els.badgeExport.title = "Click to export";
@@ -2516,12 +2531,12 @@
 
         if (e.key === "?") {
           e.preventDefault();
-          const currentlyOpen = els.shortcutsModal.classList.contains("open");
+          const currentlyOpen = state.ui.shortcutsOpen;
           setShortcutsModalOpen(!currentlyOpen);
           return;
         }
         if (e.key === "Escape") {
-          if (els.shortcutsModal.classList.contains("open")) {
+          if (state.ui.shortcutsOpen) {
             setShortcutsModalOpen(false);
             return;
           }
@@ -2529,15 +2544,15 @@
             setSidebarOpen(false);
             return;
           }
-          if (state.editorDrawerOpen) {
+          if (state.ui.editorDrawerOpen) {
             closeEditorSafely();
             return;
           }
           if (state.selectedLayer) setSelected(null);
           return;
         }
-        if (els.shortcutsModal.classList.contains("open")) return;
-        if (e.key === "Enter" && state.selectedLayer && !state.editorDrawerOpen) {
+        if (state.ui.shortcutsOpen) return;
+        if (e.key === "Enter" && state.selectedLayer && !state.ui.editorDrawerOpen) {
           setEditorDrawerOpen(true);
           return;
         }
@@ -2577,7 +2592,7 @@
         }
         if (key === "l") {
           els.toggleOtherLabels.checked = !els.toggleOtherLabels.checked;
-          state.showOtherLabels = els.toggleOtherLabels.checked;
+          state.ui.showOtherLabels = els.toggleOtherLabels.checked;
           refreshAllLayerLabels();
         }
       });
