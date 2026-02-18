@@ -542,6 +542,9 @@
       .mobilePanelBackdrop {
         display: none;
       }
+      .mobileEditAction {
+        display: none;
+      }
       @media (max-width: 900px) {
         #app {
           grid-template-columns: 1fr;
@@ -577,6 +580,26 @@
         }
         .statusExplain,
         .statusHint {
+          display: none;
+        }
+        .mobileEditAction {
+          display: inline-flex;
+          position: fixed;
+          z-index: 1080;
+          left: 12px;
+          right: 12px;
+          bottom: calc(var(--status-h) + 12px);
+          width: auto;
+          justify-content: center;
+          border-radius: 999px;
+          border: 1px solid #d1d5db;
+          background: #ffffff;
+          box-shadow: 0 6px 20px rgba(2, 8, 23, 0.2);
+          font-size: 14px;
+          font-weight: 700;
+          padding: 10px 14px;
+        }
+        .mobileEditAction[hidden] {
           display: none;
         }
       }
@@ -680,6 +703,9 @@
         <button id="btnCloseEditor" class="btnAutoWidth">Close</button>
       </div>
     </div>
+    <button id="btnMobileEditSelected" class="mobileEditAction" type="button" hidden>
+      Edit selected area
+    </button>
     <div id="mobilePanelBackdrop" class="mobilePanelBackdrop" aria-hidden="true"></div>
     <div class="statusWrap">
       <div class="statusHead">
@@ -866,6 +892,7 @@
 
         btnCloseEditor: document.getElementById("btnCloseEditor"),
         btnEditSelected: document.getElementById("btnEditSelected"),
+        btnMobileEditSelected: document.getElementById("btnMobileEditSelected"),
         statusHintShortcuts: document.getElementById("statusHintShortcuts"),
         shortcutsModal: document.getElementById("shortcutsModal"),
         btnCloseShortcuts: document.getElementById("btnCloseShortcuts"),
@@ -1897,6 +1924,7 @@
         state.editorDrawerOpen = next;
         els.selectedEditor.classList.toggle("drawerOpen", next);
         els.editorBackdrop.classList.toggle("open", next);
+        refreshSelectionActions();
       }
 
       function closeEditorSafely() {
@@ -1906,6 +1934,13 @@
 
       function refreshSelectionActions() {
         els.btnEditSelected.disabled = !state.selectedLayer;
+        if (els.btnMobileEditSelected) {
+          els.btnMobileEditSelected.hidden = !(
+            isMobileLayout() &&
+            state.selectedLayer &&
+            !state.editorDrawerOpen
+          );
+        }
       }
 
       function setShortcutsModalOpen(open) {
@@ -1972,6 +2007,7 @@
           document.body.classList.remove("mobilePanelOpen");
         }
         applySidebarLayoutSideEffects();
+        refreshSelectionActions();
       }
 
       function refreshSidebarControlLabel() {
@@ -2263,6 +2299,10 @@
       }
 
       els.btnEditSelected.addEventListener("click", () => {
+        if (!state.selectedLayer) return;
+        setEditorDrawerOpen(true);
+      });
+      els.btnMobileEditSelected.addEventListener("click", () => {
         if (!state.selectedLayer) return;
         setEditorDrawerOpen(true);
       });
