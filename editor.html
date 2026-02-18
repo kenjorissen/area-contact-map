@@ -975,7 +975,7 @@
           },
           removeConfirmInProgress: false,
           pendingDeleteLayer: null,
-          deleteConfirmResolve: null,
+          confirmResolve: null,
         },
       };
       let sidebarToggleControlEl = null;
@@ -1020,6 +1020,7 @@
         shortcutsModal: document.getElementById("shortcutsModal"),
         btnCloseShortcuts: document.getElementById("btnCloseShortcuts"),
         deleteConfirmModal: document.getElementById("deleteConfirmModal"),
+        deleteConfirmTitle: document.getElementById("deleteConfirmTitle"),
         deleteConfirmMessage: document.getElementById("deleteConfirmMessage"),
         btnDeleteConfirmCancel: document.getElementById("btnDeleteConfirmCancel"),
         btnDeleteConfirmProceed: document.getElementById("btnDeleteConfirmProceed"),
@@ -2155,23 +2156,55 @@
         }
       }
 
-      function resolveDeleteConfirm(confirmed) {
-        const resolve = state.runtime.deleteConfirmResolve;
-        state.runtime.deleteConfirmResolve = null;
+      function resolveConfirmModal(confirmed) {
+        const resolve = state.runtime.confirmResolve;
+        state.runtime.confirmResolve = null;
         state.runtime.pendingDeleteLayer = null;
         setDeleteConfirmOpen(false);
+        els.btnDeleteConfirmCancel.hidden = false;
+        els.btnDeleteConfirmCancel.textContent = "Cancel";
+        els.btnDeleteConfirmProceed.textContent = "Confirm";
         if (resolve) resolve(!!confirmed);
       }
 
-      function confirmDeleteLayer(layer) {
+      function openConfirmModal({
+        title = "Confirm action",
+        message = "",
+        confirmText = "Confirm",
+        cancelText = "Cancel",
+        showCancel = true,
+      } = {}) {
         return new Promise((resolve) => {
-          state.runtime.pendingDeleteLayer = layer || null;
-          state.runtime.deleteConfirmResolve = resolve;
-          const name = String(layer?.feature?.properties?.name || "").trim();
-          const areaId = areaIdValue(layer?.feature?.properties || {});
-          const label = name || areaId || "this area";
-          els.deleteConfirmMessage.textContent = `Delete ${label}? This cannot be undone.`;
+          state.runtime.confirmResolve = resolve;
+          els.deleteConfirmTitle.textContent = title;
+          els.deleteConfirmMessage.textContent = message;
+          els.btnDeleteConfirmCancel.hidden = !showCancel;
+          els.btnDeleteConfirmCancel.textContent = cancelText || "Cancel";
+          els.btnDeleteConfirmProceed.textContent = confirmText || "Confirm";
           setDeleteConfirmOpen(true);
+        });
+      }
+
+      function openAlertModal({ title = "Notice", message = "", okText = "OK" } = {}) {
+        return openConfirmModal({
+          title,
+          message,
+          confirmText: okText,
+          showCancel: false,
+        });
+      }
+
+      function confirmDeleteLayer(layer) {
+        state.runtime.pendingDeleteLayer = layer || null;
+        const name = String(layer?.feature?.properties?.name || "").trim();
+        const areaId = areaIdValue(layer?.feature?.properties || {});
+        const label = name || areaId || "this area";
+        return openConfirmModal({
+          title: "Delete area?",
+          message: `Delete the area named: "${label}". This cannot be undone.`,
+          confirmText: "Delete",
+          cancelText: "Cancel",
+          showCancel: true,
         });
       }
 
@@ -2281,7 +2314,7 @@
           return true;
         }
         if (top === "deleteConfirm") {
-          resolveDeleteConfirm(false);
+          resolveConfirmModal(false);
           return true;
         }
         setSurfaceOpen(top, false);
@@ -2633,10 +2666,10 @@
       els.shortcutsModal.addEventListener("click", (e) => {
         if (e.target === els.shortcutsModal) setSurfaceOpen("shortcuts", false);
       });
-      els.btnDeleteConfirmCancel.addEventListener("click", () => resolveDeleteConfirm(false));
-      els.btnDeleteConfirmProceed.addEventListener("click", () => resolveDeleteConfirm(true));
+      els.btnDeleteConfirmCancel.addEventListener("click", () => resolveConfirmModal(false));
+      els.btnDeleteConfirmProceed.addEventListener("click", () => resolveConfirmModal(true));
       els.deleteConfirmModal.addEventListener("click", (e) => {
-        if (e.target === els.deleteConfirmModal) resolveDeleteConfirm(false);
+        if (e.target === els.deleteConfirmModal) resolveConfirmModal(false);
       });
       els.toggleAdvanced.addEventListener("change", () =>
         setAdvancedMode(els.toggleAdvanced.checked),
@@ -2763,7 +2796,12 @@
         try {
           gj = JSON.parse(text);
         } catch {
-          alert("Not valid JSON.");
+          await openAlertModal({
+            title: "Import failed",
+            message: "Not valid JSON.",
+            okText: "OK",
+          });
+          setStatus("Import failed: not valid JSON.", true);
           return;
         }
 
@@ -2817,9 +2855,14 @@
 
         const needsDownloadConfirm = !supportsDirectOverwrite && !!state.lastExportAt;
         if (needsDownloadConfirm) {
-          const ok = confirm(
-            "This browser cannot overwrite an existing file. Export will download a new copy. Continue?",
-          );
+          const ok = await openConfirmModal({
+            title: "Download a new copy?",
+            message:
+              "This browser cannot overwrite an existing file. Export will download a new copy.",
+            confirmText: "Continue",
+            cancelText: "Cancel",
+            showCancel: true,
+          });
           if (!ok) {
             setStatus("Export canceled.");
             refreshSaveState();
@@ -2840,8 +2883,15 @@
       els.btnCloseMobilePanel.addEventListener("click", () => setSurfaceOpen("sidebar", false));
       els.mobilePanelBackdrop.addEventListener("click", () => setSurfaceOpen("sidebar", false));
 
-      els.btnNew.addEventListener("click", () => {
-        if (!confirm("Clear everything and start a new empty map?")) return;
+      els.btnNew.addEventListener("click", async () => {
+        const ok = await openConfirmModal({
+          title: "Start a new map?",
+          message: "Clear everything and start a new empty map?",
+          confirmText: "Start new map",
+          cancelText: "Cancel",
+          showCancel: true,
+        });
+        if (!ok) return;
         drawnItems.clearLayers();
         state.nextAreaIdNumber = 1;
         setSelected(null);
