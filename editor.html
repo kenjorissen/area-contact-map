@@ -50,6 +50,9 @@
         background: #f8fafc;
         box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
       }
+      .panelHeaderActions {
+        display: none;
+      }
       #panelResizer {
         cursor: col-resize;
         background: linear-gradient(to right, #f2f2f2, #f7f7f7, #f2f2f2);
@@ -536,6 +539,47 @@
       .editorBackdrop.open {
         display: block;
       }
+      .mobilePanelBackdrop {
+        display: none;
+      }
+      @media (max-width: 900px) {
+        #app {
+          grid-template-columns: 1fr;
+        }
+        #panel,
+        #panelResizer {
+          display: none;
+        }
+        body.mobilePanelOpen #panel {
+          display: flex;
+          position: fixed;
+          z-index: 1250;
+          top: 8px;
+          left: 8px;
+          right: 8px;
+          bottom: calc(var(--status-h) + 8px);
+          border: 1px solid #dbe1e8;
+          border-radius: 12px;
+          background: #fff;
+          box-shadow: 0 18px 42px rgba(2, 8, 23, 0.26);
+        }
+        body.mobilePanelOpen .mobilePanelBackdrop {
+          display: block;
+          position: fixed;
+          z-index: 1090;
+          inset: 0;
+          background: rgba(2, 8, 23, 0.24);
+        }
+        .panelHeaderActions {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .statusExplain,
+        .statusHint {
+          display: none;
+        }
+      }
     </style>
   </head>
   <body>
@@ -545,6 +589,9 @@
           <div>
             <div class="titleStrong">Area editor</div>
             <div class="muted">Draw areas, attach metadata, export GeoJSON.</div>
+          </div>
+          <div class="panelHeaderActions">
+            <button id="btnCloseMobilePanel" class="btnAutoWidth" type="button">Close</button>
           </div>
         </div>
 
@@ -560,49 +607,6 @@
             type="file"
             accept=".json,.geojson,application/geo+json,application/json"
           />
-
-          <div id="selectedEditor" class="selectedEditor">
-            <div class="drawerHead">
-              <div class="sectionTitle">Selected area</div>
-            </div>
-            <div id="selectionFields" class="hidden">
-              <div class="row hidden" id="rowAreaId">
-                <label for="f_area_id">Area ID</label>
-                <input id="f_area_id" placeholder="A-001" />
-              </div>
-
-              <div class="row">
-                <label for="f_name">Area name</label>
-                <input id="f_name" placeholder="area name" />
-              </div>
-              <div class="muted" id="nameSuggestHelp"></div>
-
-              <div class="row">
-                <label for="f_contact">Contact</label>
-                <input id="f_contact" placeholder="contact name" />
-              </div>
-
-              <div class="row">
-                <label for="f_status">Status</label>
-                <select id="f_status">
-                  <option value="">(blank)</option>
-                  <option value="assigned">assigned</option>
-                  <option value="unassigned">unassigned</option>
-                  <option value="needs_backup">needs_backup</option>
-                  <option value="inactive">inactive</option>
-                </select>
-              </div>
-
-              <div class="row">
-                <label for="f_notes">Notes</label>
-                <textarea id="f_notes" placeholder="Optional…"></textarea>
-              </div>
-            </div>
-            <div class="drawerFooter">
-              <div class="drawerFooterText">Edits save automatically.</div>
-              <button id="btnCloseEditor" class="btnAutoWidth">Close</button>
-            </div>
-          </div>
 
           <div class="subSection">
             <div class="subSectionTitle">View &amp; navigation</div>
@@ -634,6 +638,49 @@
       <div id="panelResizer" aria-hidden="true"></div>
       <div id="map"></div>
     </div>
+    <div id="selectedEditor" class="selectedEditor">
+      <div class="drawerHead">
+        <div class="sectionTitle">Selected area</div>
+      </div>
+      <div id="selectionFields" class="hidden">
+        <div class="row hidden" id="rowAreaId">
+          <label for="f_area_id">Area ID</label>
+          <input id="f_area_id" placeholder="A-001" />
+        </div>
+
+        <div class="row">
+          <label for="f_name">Area name</label>
+          <input id="f_name" placeholder="area name" />
+        </div>
+        <div class="muted" id="nameSuggestHelp"></div>
+
+        <div class="row">
+          <label for="f_contact">Contact</label>
+          <input id="f_contact" placeholder="contact name" />
+        </div>
+
+        <div class="row">
+          <label for="f_status">Status</label>
+          <select id="f_status">
+            <option value="">(blank)</option>
+            <option value="assigned">assigned</option>
+            <option value="unassigned">unassigned</option>
+            <option value="needs_backup">needs_backup</option>
+            <option value="inactive">inactive</option>
+          </select>
+        </div>
+
+        <div class="row">
+          <label for="f_notes">Notes</label>
+          <textarea id="f_notes" placeholder="Optional…"></textarea>
+        </div>
+      </div>
+      <div class="drawerFooter">
+        <div class="drawerFooterText">Edits save automatically.</div>
+        <button id="btnCloseEditor" class="btnAutoWidth">Close</button>
+      </div>
+    </div>
+    <div id="mobilePanelBackdrop" class="mobilePanelBackdrop" aria-hidden="true"></div>
     <div class="statusWrap">
       <div class="statusHead">
         <div class="statusTitle">Status</div>
@@ -788,16 +835,19 @@
       let sidebarToggleControlEl = null;
       let geocodeQueue = Promise.resolve();
       let lastGeocodeAt = 0;
+      const mobileScreenQuery = window.matchMedia("(max-width: 900px)");
 
       const els = {
         btnOpen: document.getElementById("btnOpen"),
         btnExport: document.getElementById("btnExport"),
         btnNew: document.getElementById("btnNew"),
+        btnCloseMobilePanel: document.getElementById("btnCloseMobilePanel"),
         fileInput: document.getElementById("fileInput"),
         statusWrap: document.querySelector(".statusWrap"),
         status: document.getElementById("status"),
         badgeAutosave: document.getElementById("badgeAutosave"),
         badgeExport: document.getElementById("badgeExport"),
+        mobilePanelBackdrop: document.getElementById("mobilePanelBackdrop"),
         nameSuggestHelp: document.getElementById("nameSuggestHelp"),
         suggestModal: document.getElementById("suggestModal"),
         suggestModalText: document.getElementById("suggestModalText"),
@@ -1873,11 +1923,70 @@
         map.fitBounds(drawnItems.getBounds(), { padding: [20, 20] });
       }
 
+      function isMobileLayout() {
+        return mobileScreenQuery.matches;
+      }
+
+      function isSidebarOpen() {
+        if (isMobileLayout()) return document.body.classList.contains("mobilePanelOpen");
+        return !document.body.classList.contains("sidebarCollapsed");
+      }
+
+      function applySidebarLayoutSideEffects() {
+        refreshSidebarControlLabel();
+        requestAnimationFrame(() => {
+          map.invalidateSize({ pan: false });
+          scheduleLabelDeclutter();
+        });
+      }
+
+      function setMobilePanelOpen(open) {
+        const next = !!open;
+        if (document.body.classList.contains("mobilePanelOpen") === next) return;
+        document.body.classList.toggle("mobilePanelOpen", next);
+        applySidebarLayoutSideEffects();
+      }
+
+      function setDesktopSidebarCollapsed(collapsed) {
+        const next = !!collapsed;
+        if (document.body.classList.contains("sidebarCollapsed") === next) return;
+        document.body.classList.toggle("sidebarCollapsed", next);
+        applySidebarLayoutSideEffects();
+      }
+
+      function setSidebarOpen(open) {
+        const next = !!open;
+        if (isMobileLayout()) {
+          setMobilePanelOpen(next);
+          return;
+        }
+        setDesktopSidebarCollapsed(!next);
+      }
+
+      function toggleSidebarOpen() {
+        setSidebarOpen(!isSidebarOpen());
+      }
+
+      function handleMobileLayoutChange() {
+        if (!isMobileLayout() && document.body.classList.contains("mobilePanelOpen")) {
+          document.body.classList.remove("mobilePanelOpen");
+        }
+        applySidebarLayoutSideEffects();
+      }
+
       function refreshSidebarControlLabel() {
         if (!sidebarToggleControlEl) return;
-        const collapsed = document.body.classList.contains("sidebarCollapsed");
-        const label = collapsed ? "Show sidebar" : "Hide sidebar";
-        sidebarToggleControlEl.textContent = collapsed ? ">>" : "<<";
+        if (isMobileLayout()) {
+          const isOpen = isSidebarOpen();
+          const label = isOpen ? "Close panel" : "Open panel";
+          sidebarToggleControlEl.textContent = isOpen ? "X" : "☰";
+          sidebarToggleControlEl.title = label;
+          sidebarToggleControlEl.setAttribute("aria-label", label);
+          return;
+        }
+        const isOpen = isSidebarOpen();
+        const label = isOpen ? "Hide sidebar" : "Show sidebar";
+        sidebarToggleControlEl.textContent = isOpen ? "<<" : ">>";
         sidebarToggleControlEl.title = label;
         sidebarToggleControlEl.setAttribute("aria-label", label);
       }
@@ -1898,8 +2007,7 @@
             L.DomEvent.disableClickPropagation(container);
             L.DomEvent.on(link, "click", (e) => {
               L.DomEvent.preventDefault(e);
-              const collapsed = document.body.classList.contains("sidebarCollapsed");
-              setSidebarCollapsed(!collapsed);
+              toggleSidebarOpen();
             });
 
             sidebarToggleControlEl = link;
@@ -1949,17 +2057,6 @@
         });
 
         map.addControl(new ZoomAllControl({ position: "topleft" }));
-      }
-
-      function setSidebarCollapsed(collapsed) {
-        const next = !!collapsed;
-        if (document.body.classList.contains("sidebarCollapsed") === next) return;
-        document.body.classList.toggle("sidebarCollapsed", next);
-        refreshSidebarControlLabel();
-        requestAnimationFrame(() => {
-          map.invalidateSize({ pan: false });
-          scheduleLabelDeclutter();
-        });
       }
 
       function bindLayer(layer) {
@@ -2265,6 +2362,9 @@
           target.closest(".leaflet-interactive")
         )
           return;
+        if (isMobileLayout() && isSidebarOpen()) {
+          setSidebarOpen(false);
+        }
         if (state.selectedLayer) setSelected(null);
       });
 
@@ -2338,6 +2438,8 @@
 
       els.btnExport.addEventListener("click", runExport);
       els.badgeExport.addEventListener("click", runExport);
+      els.btnCloseMobilePanel.addEventListener("click", () => setSidebarOpen(false));
+      els.mobilePanelBackdrop.addEventListener("click", () => setSidebarOpen(false));
 
       els.btnNew.addEventListener("click", () => {
         if (!confirm("Clear everything and start a new empty map?")) return;
@@ -2370,6 +2472,10 @@
             setShortcutsModalOpen(false);
             return;
           }
+          if (isMobileLayout() && isSidebarOpen()) {
+            setSidebarOpen(false);
+            return;
+          }
           if (state.editorDrawerOpen) {
             closeEditorSafely();
             return;
@@ -2391,8 +2497,7 @@
           return;
         }
         if (key === "b") {
-          const isCollapsed = document.body.classList.contains("sidebarCollapsed");
-          setSidebarCollapsed(!isCollapsed);
+          toggleSidebarOpen();
           return;
         }
         if (key === "o") {
@@ -2433,6 +2538,12 @@
         const footerObserver = new ResizeObserver(() => syncFooterHeight());
         footerObserver.observe(els.statusWrap);
       }
+      if (typeof mobileScreenQuery.addEventListener === "function") {
+        mobileScreenQuery.addEventListener("change", handleMobileLayoutChange);
+      } else if (typeof mobileScreenQuery.addListener === "function") {
+        mobileScreenQuery.addListener(handleMobileLayoutChange);
+      }
+      handleMobileLayoutChange();
       map.on("zoomend", refreshAllLayerLabels);
       map.on("moveend", scheduleLabelDeclutter);
 
